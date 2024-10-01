@@ -22,9 +22,12 @@ import seaborn as sns
 import fanc
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix, vstack
 from scipy.stats import gaussian_kde, ks_2samp
+from scipy.sparse.linalg import eigsh
 from iced import normalization
 from gprofiler import GProfiler
-
+from sklearn.cluster import OPTICS
+from sklearn.decomposition import PCA
+import markov_clustering as mcl
 
 if sys.version_info[0] < 3:
     import StringIO
@@ -911,7 +914,7 @@ def prenorm_filter(graph, outfile, min_contacts=2):
 
 
 # extracts the largest connected component from the graph and saves it as a new file
-def save_largest_component_graph(graphfile, outfile="graphLCC.gt"):
+def save_largest_component_graph(graph, outfile="graphLCC.gt"):
     # load graph
     if type(graph) == str:
         g = load_graph(graph)
@@ -1094,6 +1097,7 @@ def plot_goterms_per_node_histogram(adict, outfile="GOhistogram.pdf", xlim=250, 
     plt.ylim(0, ylim)
     plt.show()
     plt.savefig(outfile, bbox_inches='tight')
+    plt.close()
 
     for item, value in mydict.items():
         print(item, ":", value)
@@ -1164,19 +1168,25 @@ def invert_scale_weights(graphfile, wannotation="weight", outfile="invertScaled.
 
 
 # just do 1/x for ICE normalized values?
-def simple_invert_weights(graphfile, wannotation="weight", outfile="modified.graphml", eps=0.0000001):
+def simple_invert_weights(graphfile, wannotation="weight", outfile="modified.graphml", eps=0.0000001, addone=True):
     g = load_graph(graphfile)
 
     if wannotation in ["weight", "raw_weight"]:
         newweights = g.new_edge_property("double")  # initialize new property map for updated edge weights
         oldweights = g.ep[wannotation]  # store old weight property map for posterity
 
-        for e, ow in zip(g.edges(), oldweights.a):
-            if ow != 0:
+        if addone:  # add 1 to ensure there are no 0-1 weights before inverting
+            for e, ow in zip(g.edges(), oldweights.a):
+                ow = ow + 1
                 newweights[e] = 1/ow
-            else:
-                ow = ow + eps
-                newweights[e] = 1 / ow
+
+        else:  # if option not selected still add some small epsilon to avoid divide by zero errors
+            for e, ow in zip(g.edges(), oldweights.a):
+                if ow != 0:
+                    newweights[e] = 1/ow
+                else:
+                    ow = ow + eps
+                    newweights[e] = 1 / ow
 
         g.ep["weight"] = newweights  # overwrite weight vp with new weights and make internal before saving
         g.ep["raw_weight"] = oldweights
@@ -1493,9 +1503,6 @@ def montecarlo_sample_tpds(distmatrix, vlengths, graph, prop="goterms", m=100000
                 tpddict[numv].append(future.result())
                 pbar.update()
 
-        print("tpddict precleaning: ")  # TODO remove after troubleshooting is done?
-        print(tpddict[numv])  # TODO remove after troubleshooting is done?
-
         # Coerce to numeric and clean data
         coerced_clean_data = []
         for val in tpddict[numv]:
@@ -1521,8 +1528,8 @@ def montecarlo_sample_tpds(distmatrix, vlengths, graph, prop="goterms", m=100000
             trainsize = int(len(coerced_clean_data)*0.8)
             train_kde_data = coerced_clean_data[0:trainsize]
             test_kde_data = coerced_clean_data[trainsize:]
-            print(train_kde_data)
-            print(type(train_kde_data[1]))
+            #print(train_kde_data)
+            #print(type(train_kde_data[1]))
             kde = gaussian_kde(train_kde_data)
             approx_samples = kde.resample(m - approx_after).flatten().tolist()
             tpddict[numv].extend(approx_samples)
@@ -1559,6 +1566,7 @@ def montecarlo_sample_tpds(distmatrix, vlengths, graph, prop="goterms", m=100000
 
             plot_outfile = plot_dir + plot_prefix + "_" + str(numv) + "nodeKDEvsSampledComparison.png"
             plt.savefig(plot_outfile)
+            plt.close()
 
         # Output results
         printstring = ','.join(map(str, tpddict[numv]))
@@ -1569,11 +1577,11 @@ def montecarlo_sample_tpds(distmatrix, vlengths, graph, prop="goterms", m=100000
                 mcf.write("%s,%s\n" % (numv, printstring))
 
         stop = timeit.default_timer()
-        print(str(numv) + " completed after " + str(stop - start) + " seconds")
+        #print(str(numv) + " completed after " + str(stop - start) + " seconds")
 
     stop = timeit.default_timer()
     print('End time: ', stop - start)
-    print(tpddict)
+    #print(tpddict)
 
     return tpddict
 
@@ -1646,7 +1654,7 @@ def get_tpd(nodelist, distarray):
     row = list(row)
     col = list(col)
     tpd = math.fsum(distarray[row, col])  # vectorized addition of PD at all combs for TPD calculation
-    print("TPD of set: " + str(tpd))
+    #print("TPD of set: " + str(tpd))
 
     return tpd
 
@@ -1714,7 +1722,7 @@ def get_tptpd(nodelist, distmatrix, tpthresh=0.4):
         row = list(row)
         col = list(col)
         tpd = math.fsum(distarray[row, col])  # vectorized addition of PD at all combs for TPD calculation
-        print("Top% (" + str(tpthresh * 100) + "%) TPD: " + str(tpd))
+        #print("Top% (" + str(tpthresh * 100) + "%) TPD: " + str(tpd))
 
     return tpd
 
@@ -1737,10 +1745,10 @@ def all_go_tpd(godict, distmatrix, outfile):
             row = list(row)
             col = list(col)
             tpd = math.fsum(distarray[row, col])  # vectorized addition of PD at all combs for TPD calculation
-            print(term + "TPD: " + str(tpd))
+            #print(term + "TPD: " + str(tpd))
             with open(outfile, "a+") as f:
                 f.write(term + ", " + str(tpd) + "\n")
-                print(term + " TPD written to " + outfile)
+                #print(term + " TPD written to " + outfile)
         except ValueError as ve:
             print("ERROR ON " + str(term))
             print(ve)
@@ -1804,11 +1812,11 @@ def all_go_tptpd(godict, distmatrix, outfile, tpthresh=0.2):
             row = list(row)
             col = list(col)
             tpd = math.fsum(distarray[row, col])  # vectorized addition of PD at all combs for TPD calculation
-            print(term + "Top% (" + str(tpthresh * 100) + "%) TPD: " + str(tpd))
+            #print(term + "Top% (" + str(tpthresh * 100) + "%) TPD: " + str(tpd))
 
             with open(outfile, "a+") as f:
                 f.write(term + ", " + str(tpd) + "\n")
-                print(term + " TPD written to " + outfile)
+
         except ValueError as ve:
             print("ERROR ON " + str(term))
             print(ve)
@@ -1899,7 +1907,51 @@ def label_swap(graph, label="goterms", outfile="swappedGraph.gt", m=3000000):
     return None
 
 
-# shuffles all goterm and writes new graph with shuffled annotations
+# # shuffles all goterm and writes new graph with shuffled annotations
+# def swap_all_goterms(graph, outfile="swappedGraph.gt"):
+#     # load graph
+#     if type(graph) == str:
+#         g = load_graph(graph)
+#     elif type(graph) == Graph:
+#         g = graph
+#     else:
+#         print(
+#             "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
+#
+#     #pbar_total = sum(1 for _ in g.iter_vertices())  # total for progress bar
+#
+#     # build list of terms to sample from and dictionary of node:#annotations
+#     annot_per_node_dict = {}
+#     annot_bag = []  # list to be used as a bag randomizer
+#     print("Filling bag randomizer...")
+#     for v in tqdm(g.iter_vertices()):
+#         annot_list = list(g.vp.goterms[v])  # retrieve list of annotations
+#         annot_per_node_dict[v] = len(annot_list)  # get count of annotations for later
+#         annot_bag.extend(annot_list)  # add list of annotations to bag
+#
+#     # shuffle bag
+#     random.shuffle(annot_bag)
+#
+#     # build new property map of shuffled annotations
+#     shuf_annot_prop = g.new_vertex_property("vector<string>")
+#     print("Drawing new annotations from bag...")
+#     for v in tqdm(g.iter_vertices()):
+#         new_annot_list = []
+#         for i in range(0, annot_per_node_dict[v]):
+#             while annot_bag[-1] in new_annot_list:  # ensure new random annotation is not already in list
+#                 random.shuffle(annot_bag)
+#             new_annot_list.append(annot_bag.pop())  # pops values from shuffled bag one at a time until right size
+#
+#         shuf_annot_prop[v] = new_annot_list
+#
+#     # replace old annotations with new annotations
+#     g.vp.goterms = shuf_annot_prop
+#
+#     # write new graph
+#     g.save(outfile)
+
+
+# new implementation of shuffling that guarantees GO terms are annotated to the same number of nodes as originally
 def swap_all_goterms(graph, outfile="swappedGraph.gt"):
     # load graph
     if type(graph) == str:
@@ -1907,10 +1959,7 @@ def swap_all_goterms(graph, outfile="swappedGraph.gt"):
     elif type(graph) == Graph:
         g = graph
     else:
-        print(
-            "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
-
-    #pbar_total = sum(1 for _ in g.iter_vertices())  # total for progress bar
+        print("bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
 
     # build list of terms to sample from and dictionary of node:#annotations
     annot_per_node_dict = {}
@@ -1921,25 +1970,43 @@ def swap_all_goterms(graph, outfile="swappedGraph.gt"):
         annot_per_node_dict[v] = len(annot_list)  # get count of annotations for later
         annot_bag.extend(annot_list)  # add list of annotations to bag
 
-    # shuffle bag
-    random.shuffle(annot_bag)
+    # get counts of go terms and list of vertices to recieve new annotations
+    annot_set = list(set(annot_bag))
+    vlist = list(annot_per_node_dict.keys())
+    vlistcopy = [x for x in vlist]
+    annot_countdict = {}
+    for annot in annot_set:  # populate a dictionary where key:value is [annotation]:[number of vertices with annotation]
+        annot_countdict[annot] = annot_bag.count(annot)
 
-    # build new property map of shuffled annotations
-    shuf_annot_prop = g.new_vertex_property("vector<string>")
-    print("Drawing new annotations from bag...")
-    for v in tqdm(g.iter_vertices()):
-        new_annot_list = []
-        for i in range(1, annot_per_node_dict[v]):
-            new_annot_list.append(annot_bag.pop())  # pops values from shuffled bag one at a time until right size
+    new_annot_dict = {}
+    # for each annotation, randomly assign to setsize (annot_countdict[annot]) number of vertices
+    for annot in annot_set:
+        try:
+            x = annot_countdict[annot]
+            for v in random.sample(vlist, x):
+                if v in new_annot_dict.keys():
+                    new_annot_dict[v].append(annot)
+                else:
+                    new_annot_dict[v] = [annot]
+                # if vertex has enough annotations, remove it from vlist
+                if len(new_annot_dict[v]) >= annot_per_node_dict[v]:
+                    vlist.remove(v)
+        except ValueError as ve:
+            print("Not enough vertices left to sample. Allowing sampling from all previously annotated vertices...")
+            for v in random.sample(vlistcopy, x):
+                if v in new_annot_dict.keys():
+                    new_annot_dict[v].append(annot)
+                else:
+                    new_annot_dict[v] = [annot]
 
-        shuf_annot_prop[v] = new_annot_list
+    # convert dict to vertex property array
+    new_goterm_prop = g.new_vertex_property("vector<string>")
+    for v in new_annot_dict.keys():
+        new_goterm_prop[v] = new_annot_dict[v]
 
-    # replace old annotations with new annotations
-    g.vp.goterms = shuf_annot_prop
-
-    # write new graph
+    # make property map internal and save graph
+    g.vp.goterms = new_goterm_prop
     g.save(outfile)
-
 
 # remove nodes with degree greater than degreecutoff from graph
 def trim_nodes_by_degree(graph, outfile="trimmed.gt", degreecutoff=5000):
@@ -2053,7 +2120,7 @@ def get_go_tpd_pvals(graph, tpdfile, shuftpdfile, distrnfile, approxdist=False, 
             shufpvalsdict[i] = shufpval
             # print("shufpval: " + str(shufpvalsdict[i]))
 
-        print(str(i) + " pval: " + str(pval) + " / shufpval: " + str(shufpval))
+        #print(str(i) + " pval: " + str(pval) + " / shufpval: " + str(shufpval))
     # coerce to dataframe
     df = pd.DataFrame([nndict, tpddict, pvalsdict, shuftpddict, shufpvalsdict],
                       index=["nnodes", "tpd", "pval", "shuftpd", "shufpval"])
@@ -2212,7 +2279,7 @@ def chromosome_annotate(g):
 
 # annotate whether edges repressent intrachromosomal or interchromosomal contacts
 def contact_annotate(g):
-    eprop_contactType = g.new_edge_property("string")
+    eprop_contactType = g.new_edge_property("bool")
 
     try:
         # annotate graph with chromosomes if not already
@@ -2225,16 +2292,47 @@ def contact_annotate(g):
     # test and annotate edges
     for s, t in g.iter_edges():
         if g.vp.chromosome[s] == g.vp.chromosome[t]:
-            eprop_contactType[g.edge(s, t)] = "intrachromosomal"
+            eprop_contactType[g.edge(s, t)] = False
         else:
-            eprop_contactType[g.edge(s, t)] = "interchromosomal"
+            eprop_contactType[g.edge(s, t)] = True
 
     # make edge property internal
-    g.ep["contactType"] = eprop_contactType  # make eprop map internal so it saves with graph
+    g.ep["interchromosomal"] = eprop_contactType  # make eprop map internal so it saves with graph
 
+
+# extract interchromosomal contacts
+def extract_interchromosomal_subgraph(graph, outfile, verbose=False):
+    # load graph
+    if type(graph) == str:
+        g = load_graph(graph)
+    elif type(graph) == Graph:
+        g = graph
+    else:
+        print(
+            "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
+        sys.exit()
+
+    # annotate contacts
+    contact_annotate(g)
+
+    # save subgraph with only interchromosomal edges
+    # create graph view, and then save the graph
+    g.set_edge_filter(g.ep.interchromosomal)
+    fg = Graph(g=g, directed=False, prune=True)
+    gv = extract_largest_component(fg, prune=True)
+    if verbose:
+        print("New NumEdges: " + str(count_edges(gv)))
+    gv.save(outfile)
+
+    if verbose:
+        lccCount = count_vertices(gv)
+        ogCount = count_vertices(g)
+        print("number of vertices in original graph: " + str(ogCount))
+        print("number of vertices in largest component of subgraph: " + str(lccCount))
 
 # creates a graph with low-weight edges removed
-def create_top_edges_graph(graph, threshold=0.05, outfile="top5percentGraph.gt"):
+# if weights_are_distances is True, takes edges with lowest values. If False takes highest values
+def create_top_edges_graph(graph, threshold=0.05, outfile="top5percentGraph.gt", weights_are_distances=True):
     # load graph
     if type(graph) == str:
         g = load_graph(graph)
@@ -2247,7 +2345,11 @@ def create_top_edges_graph(graph, threshold=0.05, outfile="top5percentGraph.gt")
 
     print("NumEdges: " + str(count_edges(g)))
     # for all edges in graph, add weight to a list, sort the list, then calculate threshold for top%
-    eWeightList = np.sort(g.ep.weight.a)  # sorts in ascending order
+    if weights_are_distances:
+        eWeightList = np.sort(g.ep.weight.a)  # sorts in ascending order if weights are like distances
+    else:
+        eWeightList = np.sort(g.ep.weight.a)[::-1]  # sorts in descending order if weights are like similarities
+
     cutoffIndex = int(len(eWeightList) * threshold)
     cutoffVal = eWeightList[cutoffIndex]
     print("sorted")
@@ -2255,11 +2357,19 @@ def create_top_edges_graph(graph, threshold=0.05, outfile="top5percentGraph.gt")
     # apply a boolean property map where prop=T is edge weight is in the top ?%
     TopPercentEdge = g.new_edge_property("bool")
     g.edge_properties["TopPercentEdge"] = TopPercentEdge
-    for e in g.edges():
-        if g.ep.weight[e] <= cutoffVal:
-            g.ep.TopPercentEdge[e] = True
-        else:
-            g.ep.TopPercentEdge[e] = False
+
+    if weights_are_distances:
+        for e in g.edges():
+            if g.ep.weight[e] <= cutoffVal:  # weights with distance shorter than cutoff are kept
+                g.ep.TopPercentEdge[e] = True
+            else:
+                g.ep.TopPercentEdge[e] = False
+    else:
+        for e in g.edges():
+            if g.ep.weight[e] >= cutoffVal:  # weights with higher similarity than cutoff are kept
+                g.ep.TopPercentEdge[e] = True
+            else:
+                g.ep.TopPercentEdge[e] = False
 
     # create graph view, and then save the graph
     g.set_edge_filter(TopPercentEdge)
@@ -2608,16 +2718,18 @@ def generate_graph_report(graph, outfile="graphReport.txt", use_lcc=True):
     intraCount = 0
     for e in g.edges():
         try:  # catch if graph hasn't been annotated with chromosome / contact info
-            if g.ep.contactType[e] == "interchromosomal":
+            if g.ep.interchromosomal[e] == True:
                 interCount = interCount + 1
-            elif g.ep.contactType[e] == "intrachromosomal":
+            elif g.ep.interchromosomal[e] == False:
                 intraCount = intraCount + 1
-        except:  # if anything goes wrong, try annotating before counting
+        except AttributeError as ae:  # if anything goes wrong, try annotating before counting
+            print(ae)
+            print("Contact info not found. Annotating...")
             chromosome_annotate(g)
             contact_annotate(g)
-            if g.ep.contactType[e] == "interchromosomal":
+            if g.ep.interchromosomal[e] == True:
                 interCount = interCount + 1
-            elif g.ep.contactType[e] == "intrachromosomal":
+            elif g.ep.interchromosomal[e] == False:
                 intraCount = intraCount + 1
 
     statsdict["interContactCount"] = interCount
@@ -2758,7 +2870,6 @@ def get_top_goterms(resultscsv, outfile="topterms.csv"):
     newdf = pd.DataFrame({"goterm": golist, "tpd": tpdlist, "pval": plist, "FDRatThisCutoff": fdrlist})
 
     # save df
-    print(newdf)
     newdf.to_csv(outfile)
 
 
@@ -2805,20 +2916,89 @@ def get_real_v_null_significants(resultscsv, startstopstep=(0.1, 0, -0.00001),
 
 
 # takes a graph and outputs a list of node ids annotated with a given go term
-def get_nodes_with_term(graphfile, term):
-    g = load_graph(graphfile)
+def get_nodes_with_term(graph, term, cytoscape=False):
+    # load graph
+    if type(graph) == str:
+        g = load_graph(graph)
+    elif type(graph) == Graph:
+        g = graph
+    else:
+        print(
+            "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
 
     nodelist = []
     for v in g.vertices():
         for t in g.vp.goterms[v]:
             if t == term:
-                nodelist.append("n" + str(int(v)))
+                if cytoscape:
+                    nodelist.append("n" + str(int(v)))
+                else:
+                    nodelist.append(int(v))
 
     return nodelist
 
 
+# takes list of clusters and graph, writes one file per cluster with all the genes on that cluster's nodes
+def prep_clusters_ontologizer(mclfile, graph, outdir="./mclClusterFiles/", verbose=False):
+    # load graph
+    if type(graph) == str:
+        g = load_graph(graph)
+    elif type(graph) == Graph:
+        g = graph
+    else:
+        print("bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
+
+    numlines = sum(1 for line in open(mclfile))  # total number of lines in file
+    print("files to create: " + str(numlines))
+    namecounter = 1  # ensures each cluster gets a unique filename equal to the line number
+
+    # check if outdir exists and if not create it
+    if not os.path.exists(outdir):
+        os.mkdir(outdir)
+
+    # load mcl results file
+    f = open(mclfile, "r")
+
+    print("working...")
+
+    # for each line in mcl file, take as list of nodes, then iterate through list adding all genes at node to genelist
+    for line in f:
+        print(str(namecounter) + "/" + str(numlines), flush=True)
+        strlist = line.split()
+        nodelist = [eval(x) for x in strlist]  # convert strings to ints
+        print(nodelist)
+        genelist = []
+        for node in nodelist:
+            if g.vp.genes[node]:
+                genelist.extend(list(g.vp.genes[node]))
+
+            else:
+                print("no genes found")
+
+        genelist = list(set(genelist))  # before writing, make sure all genes in list are unique (TODO: right??)
+        if verbose:
+            print(genelist)
+
+        # open new file in outdir and write list of genes to it
+        # if there are no genes in the cluster, append EMPTY to filename
+        if not genelist:
+            outfilename = outdir + "cluster" + str(namecounter) + "_EMPTY.txt"
+        else:
+            numgenes = len(genelist)
+            outfilename = outdir + "cluster" + str(namecounter) + "_" + str(numgenes) + "genes.txt"
+
+        with open(outfilename, "w") as f2:
+            for gene in genelist:
+                f2.write(gene + "\n")
+            if verbose:
+                print(outfilename + " written")
+        namecounter = namecounter + 1  # increment name counter
+
+    f.close()
+
+
 # calculates A/B compartments from .hic file and annotates graph
-def annotate_ab_compartments(graphfile, hicfile, outfile, genomefile):
+def annotate_ab_compartments_hic(graphfile, hicfile, outfile, genomefile):
     hic = fanc.load(hicfile)  # load hic file into mem
     ab = fanc.ABCompartmentMatrix.from_hic(hic)  # get
     ev = ab.eigenvector()
@@ -2834,6 +3014,51 @@ def annotate_ab_compartments(graphfile, hicfile, outfile, genomefile):
         compartment = region.name
 
         print(str(chr) + ":" + str(start) + "-" + str(end) + " -> " + str(compartment))
+
+
+# annotateshic .graphml or .gt with a/b compartment status by PCA and gc content
+#TODO FINISH
+def annotate_ab_compartments(graphfile, outfile, binsize, genomefile):
+    compartments_pca()
+    get_gc_contents()
+    determine_ab()
+    label_ab()
+
+
+# for use by annotate_ab_compartments()
+# Extracts contact matrix (numpy), does PCA on it, and writes sign (+1/-1) to file/graph annotations
+#TODO FINISH
+def compartments_pca(graph, outfile):
+    # load graph
+    if type(graph) == str:
+        g = load_graph(graph)
+    elif type(graph) == Graph:
+        g = graph
+    else:
+        print(
+            "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
+        sys.exit()
+    adjacency_matrix = adjacency(g, weight=g.ep.weight).toarray()  # Compute the weighted adjacency matrix
+
+
+# for use by annotate_ab_compartments()
+# extracts the gc content from a binned genome fasta where bins are same size as input graph node bins
+#TODO FINISH
+def get_gc_contents():
+    x = 1
+
+
+# uses gc content and compartment labels (signs) to determine which compartment is A (active, high gc) and which is B
+#TODO FINISH
+def determine_ab():
+    x = 1
+
+
+# for use by annotate_ab_compartments()
+# uses outputs from compartments_pca and determine_ab() to label input graph with compartments as node annotations
+#TODO FINISH
+def label_ab():
+    x = 1
 
 
 # opens tad file (.bed format) and creates a {[chrom]:[list of region bounds], ...} dictionary
@@ -2871,7 +3096,7 @@ def do_spectral_clustering(graph, outfile, method="OPTICS"):
     eigenvalues, eigenvectors = eigsh(laplacian_matrix, k=3, which='SM')  # Eigenvalue Decomposition
 
     # do OPTICS Clustering
-    clust = OPTICS(min_samples=3, xi=0.05).fit(eigenvectors)  # do clustering
+    clust = OPTICS(min_samples=4, xi=0.05).fit(eigenvectors)  # do clustering
     # cluster_labels = clust.labels_[clust.ordering_]
     cluster_labels = clust.labels_
 
@@ -2894,7 +3119,7 @@ def do_spectral_clustering(graph, outfile, method="OPTICS"):
 
 
 # performs Markov clustering on graph
-def do_markov_clustering(graph, outfile):
+def do_markov_clustering(graph, outfile, inflation=2):
     # load graph
     if type(graph) == str:
         g = load_graph(graph)
@@ -2905,19 +3130,19 @@ def do_markov_clustering(graph, outfile):
             "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
         sys.exit()
 
-    matrix = adjacency(g, weight=g.ep.raw_weight).toarray()
+    matrix = adjacency(g, weight=g.ep.weight).toarray()
 
-    result = mcl.run_mcl(matrix)  # run MCL with default parameters
+    result = mcl.run_mcl(matrix, inflation=inflation)  # run MCL
     clusters = mcl.get_clusters(result)  # get clusters
 
-    for line in clusters:
-        clusterhist.append(len(line))
-        writeline = str(line).split("(")[-1].split(")")[0] + "\n"
-        f.write(str(writeline))
+    with open(outfile, "w") as f:
+        for line in clusters:
+            writeline = str(line).split("(")[-1].split(")")[0] + "\n"
+            f.write(str(writeline))
 
 
 # gets enrichment of GO terms for all clusters in cluster file from
-def get_go_enrichments(graph, clustersfile, outfile):
+def get_go_enrichments(graph, clustersfile, outfile, go_only=True):
     # load graph
     if type(graph) == str:
         g = load_graph(graph)
@@ -2940,8 +3165,13 @@ def get_go_enrichments(graph, clustersfile, outfile):
             # for cluster in file
             gp = GProfiler(return_dataframe=True)
             if genelist:
-                newDF = gp.profile(organism='hsapiens', query=genelist)
-                newDF.to_csv(outfile, mode='a')
+                if go_only:
+                    newDF = gp.profile(organism='hsapiens', query=genelist,
+                                       sources=["GO:MF", "GO:CC", "GO:BP"], no_evidences=False)
+                else:
+                    newDF = gp.profile(organism='hsapiens', query=genelist, no_evidences=False)
+
+                newDF.to_csv(outfile, mode='w')
 
 
 # function for plotting GO terms / node distribution
@@ -2961,6 +3191,7 @@ def plot_go_terms_per_node(graphfile, binsize=5, outfile="goTermPerNodeHistogram
 
     # Save the figure
     plt.savefig(outfile)
+    plt.close()
 
 
 # function for plotting genes / node distribution
@@ -2980,6 +3211,7 @@ def plot_genes_per_node(graphfile, binsize=5, outfile="genesPerNodeHistogram.png
 
     # Save the figure
     plt.savefig(outfile)
+    plt.close()
 
 
 # function for plotting degree distribution
@@ -2998,10 +3230,11 @@ def plot_degree_distribution(graphfile, binsize=5, outfile="degreeHistogram.png"
 
     # Save the figure
     plt.savefig(outfile)
+    plt.close()
 
 
 # function for plotting distribution of edge weights
-def plot_edge_weight_distribution(graphfile, binsize=100, outfile="edgeWeightHistogram.png", log=True):
+def plot_edge_weight_distribution(graphfile, binsize=100, outfile="edgeWeightHistogram.png", log=False):
     print("loading " + graphfile + " for plotting...")
     g = load_graph(graphfile)
 
@@ -3025,6 +3258,7 @@ def plot_edge_weight_distribution(graphfile, binsize=100, outfile="edgeWeightHis
 
     # Save the figure
     plt.savefig(outfile)
+    plt.close()
 
 
 # function for plotting edge weights from before transformation
@@ -3047,10 +3281,11 @@ def plot_raw_weight_distribution(graphfile, binsize=100, outfile="rawWeightHisto
 
     # Save the figure
     plt.savefig(outfile)
+    plt.close()
 
 
 # function for plotting shortest path distribution for all pairs of nodes
-def plot_shortest_path_pairs_distribution(APSPmatrix, binsize=100, outfile="pairwiseShortestPathsHistogram.png"):
+def plot_shortest_path_pairs_distribution(APSPmatrix, binsize=100, outfile="pairwiseShortestPathsHistogram.png", log=False):
     mat = np.loadtxt(open(APSPmatrix, "rb"), skiprows=1)[:, 1:]  # read distrn matrix w/o index col/row
     nrows, ncol = mat.shape  # get nparray shape to use as number of rows/columns
 
@@ -3058,7 +3293,10 @@ def plot_shortest_path_pairs_distribution(APSPmatrix, binsize=100, outfile="pair
     pathweights = mat[np.tril_indices(nrows, k=-1)]  # takes values in lower triangle of mat excluding diagonal
 
     hist, bins, _ = plt.hist(pathweights, bins=binsize)
-    logbins = np.logspace(np.log10(bins[0]), np.log10(bins[-1] + 1), len(bins))
+    if log:
+        logbins = np.logspace(np.log10(bins[0]), np.log10(bins[-1]+1), len(bins))
+    else:
+        logbins = binsize
     plt.clf()
     # Create histogram
     plt.hist(pathweights, bins=logbins, color='black')
@@ -3066,11 +3304,13 @@ def plot_shortest_path_pairs_distribution(APSPmatrix, binsize=100, outfile="pair
     # Add labels and title
     plt.xlabel('Length(summed weight) of pairwise shortest paths')
     plt.ylabel('Count')
-    plt.xscale('log')
-    plt.yscale('log')
+    if log:
+        plt.xscale('log')
+        plt.yscale('log')
 
     # Save the figure
     plt.savefig(outfile)
+    plt.close()
 
 
 # draws histogram of pvals in real and shuffled graphs to compare distributions (shuffled should be flat, real left skewed)
@@ -3101,10 +3341,11 @@ def plot_real_shuffled_pval_distributions(results_file, outfile, stepsize=0.001)
     plt.legend(loc='upper right')
     # Save the figure
     plt.savefig(outfile, bbox_inches='tight')
+    plt.close()
 
 
 # draws histogram of significant pvals at decreasing thresholds to determine FDR cutoff (Panel A)
-def plot_fdr_pval_histogram(results_file, outfile, stepsize=0.001):
+def plot_fdr_pval_histogram(results_file, outfile, stepsize=0.001, log_axis=True):
     with open(results_file, "r") as f:
         pvals = []
         shufpvals = []
@@ -3119,8 +3360,10 @@ def plot_fdr_pval_histogram(results_file, outfile, stepsize=0.001):
     shufpylist = [float(x) for x in shufpvals]  # convert to numeric
     xlist = list(np.arange(stepsize, 0.1 + stepsize, stepsize))
 
-    logbins = np.logspace(np.log10(xlist[0]), np.log10(xlist[-1]), len(xlist))
-    # logbins = xlist
+    if log_axis:
+        logbins = np.logspace(np.log10(xlist[0]), np.log10(xlist[-1]), len(xlist))
+    else:
+        logbins = xlist
 
     plt.clf()
     # Create histogram
@@ -3131,11 +3374,13 @@ def plot_fdr_pval_histogram(results_file, outfile, stepsize=0.001):
     plt.xlabel('p-value threshold', fontsize=20)
     plt.ylabel('# of GO terms with\n p-value < threshold', fontsize=20)
     plt.xlim(xlist[0], xlist[-1])  # why does setting this result in such a strange plot?
-    plt.yscale('log')
-    plt.xscale('log')  # TODO remove this line
+    if log_axis:
+        plt.yscale('log')
+        plt.xscale('log')  # TODO remove this line
     plt.legend(loc='upper left')
     # Save the figure
     plt.savefig(outfile, bbox_inches='tight')
+    plt.close()
 
 
 # plots correlation of TPD vs # of interchromosomal contacts for each go term or other annotation
@@ -3239,6 +3484,7 @@ def plot_passing_terms_v_fdr_fig(inputcsv, outfile="numtermsVfdrFig.png"):
     plt.ylim(0, 150)
     plt.ylabel("Number of statistically significantly clustered GO terms")
     plt.savefig(outfile)
+    plt.close()
 
 
 # full run of the pipeline, from sam files to final results dataframe plus figures
@@ -3249,7 +3495,7 @@ def plot_passing_terms_v_fdr_fig(inputcsv, outfile="numtermsVfdrFig.png"):
 # - GothicAPSP.so
 # - Ensembl2Reactome_All_Levels.txt
 def gothic_full_run(runname, sam1=None, sam2=None, filedir=".", binsize=80000, vmax=10000, ncores=1,
-                    step=0, endstep=12, binfile=None, saveadjlist=False, filterlevel=0.5):
+                    step=0, endstep=12, binfile=None, saveadjlist=False, filterlevel=0):
     start = timeit.default_timer()
 
     if binfile:
@@ -3313,11 +3559,15 @@ def gothic_full_run(runname, sam1=None, sam2=None, filedir=".", binsize=80000, v
         ice_balance(cooname, normcooname)
         update_weights_from_coo(graphname, normcooname, newgraphname)
 
-        print("filtering edges...")
-        graphname = newgraphname
-        fpstring = "Top" + str(int(filterlevel * 100)) + "p"
-        newgraphname = runname + "_" + fpstring + "filtered.gt"
-        create_top_edges_graph(graphname, threshold=filterlevel, outfile=newgraphname)
+        if filterlevel > 0:
+            print("filtering edges...")
+            graphname = newgraphname
+            fpstring = "Top" + str(int(filterlevel * 100)) + "p"
+            newgraphname = runname + "_" + fpstring + "filtered.gt"
+            create_top_edges_graph(graphname, threshold=filterlevel, outfile=newgraphname)
+        else:
+            g = load_graph(newgraphname)
+            g.save(runname + ".gt")
 
         # print("Modifying edge weights...")
         # graphname = newgraphname
@@ -3328,8 +3578,11 @@ def gothic_full_run(runname, sam1=None, sam2=None, filedir=".", binsize=80000, v
 
     # calculate All Pairs Shortest Paths (APSP) and create distance matrix
     if step <= 5 <= endstep:
-        # newgraphname = runname + "_filteredModifiedEdges.gt"
-        newgraphname = runname + "_filtered.gt"
+        if filterlevel > 0:
+            newgraphname = runname + "_filtered.gt"
+        else:
+            newgraphname = runname + ".gt"
+
         distgraphname = runname + "_wdistances.gt"
         annotate_apsp(newgraphname, distgraphname)  # calculate all pairs shortest paths as graph annotations
         matfilename = runname + "_distmatrix.tsv"
@@ -3339,7 +3592,7 @@ def gothic_full_run(runname, sam1=None, sam2=None, filedir=".", binsize=80000, v
 
     # plot edge weight and shortest paths distributions, save as base file name for all future uses
     if step <= 6 <= endstep:
-        graphname = runname + "_filteredModifiedEdges.gt"
+        graphname = runname + "_wdistances.gt"
         newgraphname = runname + ".gt"  # naming convention assumes basic graph name is the complete one TODO is that ok?
         matfilename = runname + "_distmatrix.tsv"
         weightplotname = runname + "_edgeWeightPlot.png"
@@ -3511,8 +3764,9 @@ def gothic_full_clustering_run(runname, sam1=None, sam2=None, filedir=".", binsi
         do_spectral_clustering(graphname, spectralresultsfile)
 
         # do clustering enrichment
-        mcl_plotfile = runname + "_" + fpstring + "MCLclusters.csv"
-        spectral_plotfile = runname + "_" + fpstring + "SpectralClusters.csv"
+        mcl_plotfile = runname + "_" + fpstring + "MCLenrichments.csv"
+        spectral_plotfile = runname + "_" + fpstring + "Spectralenrichments.csv"
 
         get_go_enrichments(graphname, mclresultsfile, mcl_plotfile)
         get_go_enrichments(graphname, spectralresultsfile, spectral_plotfile)
+
