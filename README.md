@@ -8,6 +8,7 @@ GOTHiC is a python tool that allows for the creation, annotation, and analysis o
 To use GOTHiC, copy `gothic.py` into a directory within your python PATH, and simply 'from gothic import *'. Individual functions are available for specific tasks involving the conversion of .sam or .hic files to Hi-C graphs, graph functional annotation with Gene Ontology terms or REACTOME metabolic pathways, clustering analysis, and visualization. Function documentation can be found in the Docs/ directory, and scripts are available in the Scripts/ directory for running the most typical workflow. These scripts can be used for Hi-C network creation and normalization from SAM file, graph annotation with Gene Ontology Terms, clustering analysis, A/B compartment analysis, and visualization.  
 
 Dependencies:
+
 graph-tool (install [here](https://graph-tool.skewed.de/installation.html))
 
 required packages: pandas numpy matplotlib scipy tqdm plotly goatools seaborn fanc iced gprofiler sklearn markov_clustering 
