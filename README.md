@@ -9,6 +9,7 @@ To use GOTHiC, copy `gothic.py` into a directory within your python PATH, and si
 
 Dependencies:
 graph-tool (install [here](https://graph-tool.skewed.de/installation.html))
+
 required packages: pandas numpy matplotlib scipy tqdm plotly goatools seaborn fanc iced gprofiler sklearn markov_clustering 
 
 ![Heatmap visualization of A/B compartments and Network visualization of GO terms with GOTHiC](https://github.com/user-attachments/assets/45a5e6b3-aba6-4c50-97c8-3112fcdb055e)
