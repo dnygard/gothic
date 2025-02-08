@@ -5,9 +5,13 @@ GOTHiC is a python tool that allows for the creation, annotation, and analysis o
 ![A summary of GOTHiC's primary workflow](https://github.com/LavalleeAdamLab/GOTHiC/assets/61287366/7d13adaa-5a70-4c1b-b0a7-7116a9736b1b)
 
 ## Using GOTHiC:
-To use GOTHiC, copy `gothic.py` into a directory within your python PATH, and simply 'from import gothic *'. Individual functions are available for specific tasks involving the conversion of .sam or .fastq files to Hi-C graphs, graph functional annotation with Gene Ontology terms or REACTOME metabolic pathways, clustering analysis, and visualization. The most conventional use case for GOTHiC can be invoked by calling the function gothic_full_run() with appropriate arguments for your use case.
+To use GOTHiC, copy `gothic.py` into a directory within your python PATH, and simply 'from gothic import *'. Individual functions are available for specific tasks involving the conversion of .sam or .hic files to Hi-C graphs, graph functional annotation with Gene Ontology terms or REACTOME metabolic pathways, clustering analysis, and visualization. Function documentation can be found in the Docs/ directory, and scripts are available in the Scripts/ directory for running the most typical workflow. These scripts can be used for Hi-C network creation and normalization from SAM file, graph annotation with Gene Ontology Terms, clustering analysis, A/B compartment analysis, and visualization.  
 
+![Network visualization of GO terms and heatmap visualization of A/B compartments with GOTHiC](https://github.com/LavalleeAdamLab/GOTHiC/assets/61287366/7d13adaa-5a70-4c1b-b0a7-7116a9736b1b)
 
+Dependencies:
+graph-tool (install [here](https://graph-tool.skewed.de/installation.html))
+required packages: pandas numpy matplotlib scipy tqdm plotly goatools seaborn fanc iced gprofiler sklearn markov_clustering 
 
 
 
