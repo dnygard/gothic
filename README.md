@@ -13,6 +13,9 @@ graph-tool (install [here](https://graph-tool.skewed.de/installation.html))
 
 required packages: pandas numpy matplotlib scipy tqdm plotly goatools seaborn fanc iced gprofiler sklearn markov_clustering 
 
+required files: download from https://drive.google.com/drive/folders/1ftdomTXNynh5iZewhiUpyHiWQeuT5I9p?usp=sharing 
+or use your preferred versions of GO-obo, gencode, and uniprot IDmapping files, just be sure to explicitly name these files in your run scripts accordingly.  
+
 ![Heatmap visualization of A/B compartments and Network visualization of GO terms with GOTHiC](https://github.com/user-attachments/assets/45a5e6b3-aba6-4c50-97c8-3112fcdb055e)
 
 To replicate the figures and results found in Nygard et al. 2025, run the following scripts in the Scripts/ folder in this order:
