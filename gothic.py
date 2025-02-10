@@ -21,7 +21,7 @@ import importlib
 import seaborn as sns
 import fanc
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix, vstack
-from scipy.stats import gaussian_kde, ks_2samp
+from scipy.stats import gaussian_kde, ks_2samp, pearsonr
 from scipy.sparse.linalg import eigsh
 from iced import normalization
 from gprofiler import GProfiler
@@ -745,106 +745,6 @@ def parse_gff3(infile, outfile='./gencode_pcgenes.csv'):
     gencode.to_csv(outfile)
 
 
-# # writes a weighted adjacency list in COO (sparse matrix) format
-# def output_coo(graph, outfile="graph.coo"):
-#     # load graph
-#     if type(graph) == str:
-#         g = load_graph(graph)
-#     elif type(graph) == Graph:
-#         g = graph
-#     else:
-#         print(
-#             "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
-#
-#     f = open(outfile, "w")
-#
-#     # get edgelist
-#     # convert to COO and store in file
-#     for s, t, w in g.iter_edges([g.ep.weight]):  # source, target, weight
-#         f.write(str(s) + " " + str(t) + " " + str(w) + "\n")
-#     f.close()
-
-
-# performs sinkhorn-knopp balancing on a preconstructed chromatin conformation graph
-# deprecated/ removed
-# def skbalance(graphmlfile, outfile="normed.graphml"):
-#
-#     g = nx.read_graphml(graphmlfile)  # read in graphml
-#
-#     newg = nx.to_pandas_adjacency(g)  # convert to adjacency matrix
-#     sk = skp.SinkhornKnopp()
-#     normg = sk.fit(newg)  # run balancing
-#     normg = pd.DataFrame(normg, index=newg.index, columns=newg.columns)  # convert back to dataframe
-#     normg = nx.from_pandas_adjacency(normg)  # import back to networkx
-#     nx.write_graphml(normg, outfile)  # write back to gml
-
-
-# deprecated / removed
-# # performs Knight-Ruiz balancing on a preconstructed chromatin conformation graph (faster than skbalance)
-# # can take either graphml or gt files
-# def kr_balance(graph, resolution, outfile="normed.graphml"):
-#
-#     # load graph
-#     if type(graph) == str:
-#         g = load_graph(graph)
-#     elif type(graph) == Graph:
-#         g = graph
-#     else:
-#         print("bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
-#
-#     f = open("tempCOOfile.txt", "w")  # TODO name this properly? or delete after running?
-#
-#     # get edgelist
-#     # convert to COO and store in file
-#     for s, t, w in g.iter_edges([g.ep.weight]):  # source, target, weight
-#         f.write(str(s) + " " + str(t) + " " + str(w) + "\n")
-#     f.close()
-#
-#     # do KR normalization
-#     del g  # clear up memory for normalization
-#     cooReader = gmlib.importer.CooMatrixHandler("tempCOOfile.txt", resolution=resolution, coordinate='index')  # import and convert COO edgelist
-#     cooReader.save_ccmaps('tempccmap.ccmap', xlabels="IndexPosition")  # TODO name this properly? or delete after running?
-#     del cooReader  # Delete object and generated any temporary files
-#     gmlib.normalizer.normalizeCCMapByKR('tempccmap.ccmap', outFile='normedccmap.ccmap', memory='RAM')
-#
-#     # convert back to edgelist?
-#     ccmap = gmlib.ccmap.load_ccmap('normedccmap.ccmap')
-#     gmlib.ccmap.export_cmap(ccmap, "normedCOO.txt", doNotWriteZeros=True)
-#     del ccmap
-#
-#     # update edge weights with normalized values
-#     # load graph
-#     if type(graph) == str:
-#         g = load_graph(graph)
-#     elif type(graph) == Graph:
-#         g = graph
-#     else:
-#         print("bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
-#
-#     f = open("normedCOO.txt", "r")  # open normalized COO for reading
-#
-#     # make new edge weight dict to become new EdgePropertyMap
-#     eweight_dict = g.new_edge_property("double")
-#     for line in f:
-#         splitline = line.split()
-#         thisedge = g.edge(int(splitline[0]), int(splitline[1]))
-#         eweight_dict[thisedge] = float(splitline[2])  # add new weight to dict
-#
-#     # make new edge map internal, replacing old weight property
-#     g.edge_properties["weight"] = eweight_dict
-#
-#     # write new graph file
-#     g.save(outfile)
-#     # remove temp files
-#     os.remove("tempCOOfile.txt")
-#     os.remove("normedCOO.txt")
-
-
-# new implementation of kr_balance() from chatgpt splits COO matrix reading and balancing into two separate functions
-# Example usage
-# file_path = 'path_to_your_edge_list.tsv'
-# edge_list_matrix = read_edge_list(file_path)
-# normalized_matrix = knight_ruiz_normalization_sparse(edge_list_matrix)
 
 # first though, this function makes the COO from a graph
 def make_graph_coo(graph, outfile="graphCOO.tsv"):
@@ -953,53 +853,6 @@ def ice_balance(infile, outfile):
                 f.write(f'{r} {c} {v}\n')
 
 
-# performs knight-ruiz normalization on whole matrix
-# doesn't work properly so removing for now
-# def kr_balance(infile, outfile, tolerance=1e-5, max_iterations=100):
-#     # Load data from file
-#     data = pd.read_csv(infile, sep=' ', header=None, names=['source', 'target', 'weight'])
-#
-#     # Create sparse matrix
-#     row = data['source'].values
-#     col = data['target'].values
-#     values = data['weight'].values
-#     n = max(np.max(row), np.max(col)) + 1  # Assuming 0-based index, adjust accordingly
-#     matrix = coo_matrix((values, (row, col)), shape=(n, n))
-#
-#     # Convert to dense matrix for normalization
-#     dense_matrix = matrix.todense()
-#     previous_matrix = dense_matrix.copy()
-#
-#     # Knight-Ruiz normalization with convergence check
-#     for iteration in range(max_iterations):
-#         # Normalize rows
-#         row_sums = np.sqrt(np.sum(dense_matrix ** 2, axis=1)).reshape(-1, 1)
-#         row_sums[row_sums == 0] = 1  # Prevent division by zero by replacing zero sums with one
-#         dense_matrix = dense_matrix / row_sums
-#
-#         # Normalize columns
-#         col_sums = np.sqrt(np.sum(dense_matrix ** 2, axis=0)).reshape(1, -1)
-#         col_sums[col_sums == 0] = 1  # Prevent division by zero by replacing zero sums with one
-#         dense_matrix = dense_matrix / col_sums
-#
-#         # Check for convergence
-#         delta = np.linalg.norm(dense_matrix - previous_matrix, 'fro')  # Frobenius norm to measure changes
-#         if delta < tolerance:
-#             print(f'Convergence reached after {iteration + 1} iterations.')
-#             break
-#         previous_matrix = dense_matrix.copy()
-#
-#     # Create a new COO matrix from the normalized dense matrix
-#     normalized_matrix = coo_matrix(dense_matrix)
-#     row, col, values = normalized_matrix.row, normalized_matrix.col, normalized_matrix.data
-#
-#     # Write normalized data to output file
-#     with open(outfile, 'w') as f:
-#         for r, c, v in zip(row, col, values):
-#             if v != 0:  # Optionally skip writing zero values to output
-#                 f.write(f'{r} {c} {v}\n')
-
-
 def update_weights_from_coo(graph, coo, outgraph):
     # update edge weights with normalized values
     # load graph
@@ -1101,22 +954,6 @@ def plot_goterms_per_node_histogram(adict, outfile="GOhistogram.pdf", xlim=250, 
 
     for item, value in mydict.items():
         print(item, ":", value)
-
-
-# creates a nodelist and edgelist for parallelization of dijkstra
-# deprecated
-# def makenodesedgeslists(graphmlfile, nodesfile="hicGraphNodes.txt", edgesfile="hicGraphEdges.csv"):
-#     g = nx.read_graphml(graphmlfile)
-#     e = list(g.edges.data('weight', default=0))
-#     v = list(g.nodes(data=False))
-#
-#     with open(nodesfile, 'w+') as f1:  # write nodes to file
-#         for item in v:
-#             f1.write(str(item) + "\n")
-#
-#     with open(edgesfile, 'w+') as f2:  # write edges to file
-#         writer = csv.writer(f2)
-#         writer.writerows(e)
 
 
 # update all weights in graphs so that lower weight = closer proximity so dijkstra does what we want
@@ -1239,65 +1076,6 @@ def modify_weights(graphfile, wannotation="weight", outfile="modified.graphml"):
         print("Invalid weight annotation. You must choose either \"weight\" or \"raw_weight\".")
 
     g.save(outfile)
-
-
-# # update all weights in graphs so that lower weight = closer proximity so dijkstra does what we want
-# # TODO CHECK AND FIX THIS
-# # BROKEN, only keeping for posterity
-# # TODO DELETE LATER
-# def modify_weights(graphfile, wannotation="weight", outfile="modified.graphml"):
-#     g = load_graph(graphfile)
-#
-#     if wannotation in ["weight", "raw_weight"]:
-#         newweights = g.new_edge_property("double")  # initialize new property map for updated edge weights
-#         oldweights = g.ep[wannotation]  # store old weight property map for posterity
-#
-#         # Scale weights to a range [0, 1]
-#         if np.any(0 > oldweights.a) or np.any(oldweights.a > 1):  #only apply scaling if weights are not already in range
-#             owmax = np.max(oldweights.a)
-#             owmin = np.min(oldweights.a)
-#             scaledat = (oldweights.a - owmin) / (owmax - owmin)
-#
-#             maxdenom = max(1 / scaledat)
-#             wmax = max(scaledat)  # for skipping this divide by zero error during transformation
-#
-#             for e, ow in zip(g.edges(), scaledat):
-#                 if ow == wmax:
-#                     newweights[e] = float('inf')
-#                 else:
-#                     newweights[e] = 1 / -np.log10((1 / ow) / maxdenom)
-#
-#         else:
-#             maxdenom = max(1 / oldweights.a)
-#             wmax = max(oldweights.a)  # for skipping this divide by zero error during transformation
-#
-#             for e, ow in zip(g.edges(), oldweights.a):
-#                 if ow == wmax:
-#                     newweights[e] = float('inf')
-#                 else:
-#                     newweights[e] = 1 / -np.log10((1 / ow) / maxdenom)
-#
-#         # replace infinite values with max weight
-#         inf_indices = np.where(np.isinf(newweights.a))[0]
-#         inf_edges = [edge for i, edge in enumerate(g.edges()) if i in inf_indices]
-#         for e in inf_edges:
-#             newweights[e] = max(newweights.a[np.where(np.isfinite(newweights.a))])
-#
-#         # remove after troubleshooting
-#         print("new weights stats post inf removal")
-#         print("max: " + str(max(newweights.a)))
-#         print("med: " + str(np.median(newweights.a)))
-#         print("min: " + str(min(newweights.a)))
-#         print("has inf? " + str(np.any(np.isinf(newweights.a))))
-#         print("has nan? " + str(np.any(np.isnan(newweights.a))))
-#
-#         g.ep["weight"] = newweights  # overwrite weight vp with new weights and make internal before saving
-#         g.ep["raw_weight"] = oldweights
-#
-#     else:
-#         print("Invalid weight annotation. You must choose either \"weight\" or \"raw_weight\".")
-#
-#     g.save(outfile)
 
 
 # converts graphml to gt for faster opening in graph tool
@@ -1476,7 +1254,7 @@ def montecarlo_sample_tpds(distmatrix, vlengths, graph, prop="goterms", m=100000
     # get weighted list(vector) of nodes for sampling from
     if sampling == "weighted":  # do weighted sampling
         svec = get_sampling_vector(graph, prop=prop)
-    else:  # don't do unweighted sampling
+    else:  # don't do weighted sampling
         # load graph
         if isinstance(graph, str):
             g = load_graph(graph)
@@ -1829,6 +1607,406 @@ def all_go_tptpd(godict, distmatrix, outfile, tpthresh=0.2):
     return None
 
 
+# gets linear distance between nodes/genes from a given set and plot them against their go rank
+def get_linear_distances_tpd(resultsfile, gafname, gencodefile, outfile=None, nsamples=1000000, verbose=True, plot=True):
+    # create "gene":"chr:startpos-endpos" dictionary
+    if verbose:
+        print("creating gene:position dictionary...")
+    geneposdict = {}  # initialize dict
+    gencode = pd.read_csv(gencodefile)  # load gencode table
+    for index, row in gencode.iterrows():  # iterate through table
+        chrom = row['seqid']
+        startpos = int(row['start'])
+        endpos = int(row['end'])
+        name = row['attributes'].split(";")[3].split("=")[1]  # extracts gene name from attributes column
+
+        valstring = chrom + ":" + str(startpos) + "-" + str(endpos)
+        geneposdict[name] = valstring  # add gene to dict
+    del gencode  # delete from memory to free up resources
+
+    # create "term":[genes] dictionary from gaf file from GO consortium
+    if verbose:
+        print("creating GOterm:genes dictionary...")
+    gogenesdict = {}  # dict for storing "GOid":[list of genes] dictionary
+    with open(gafname, "r") as gaf:
+        for line in gaf:
+            if not line.startswith("!"):  # ignore header lines
+                gene = line.split("\t")[2]  # retrieve gene name from 3rd column
+                goid = line.split("\t")[4]  # retrieve GOid from 5th column
+                if goid in gogenesdict:  # if go id is in dict already, append new gene to list
+                    gogenesdict[goid].append(gene)
+                else:  # else create new dict entry for genes as list of strings (with only one entry for now)
+                    gogenesdict[goid] = [gene]
+
+    # get ranked list of go terms from results file
+    if verbose:
+        print(" getting ranked list of GO terms from results file...")
+    rankedgolist = []
+    with open(resultsfile, "r") as resf:  # open results file
+        for line in resf:  # iterate through file to extract ranked list of go terms
+            if not line.startswith(","):  # skip header line of file
+                rankedgolist.append(line.split(",")[1].strip())  # append go term to list
+
+    # in order, iterate through ranked list of GO terms
+    if verbose:
+        print("getting linear distances for all pairs of genes per ranked GO terms...")
+    golindistdict = {}
+    for term in rankedgolist:  # iterate through ranked list of goterms
+        # get all genes associated with that term
+        try:
+            genelist = gogenesdict[term]
+        except KeyError as ke:
+            if verbose:
+                print("Could not get gene info for " + term)
+            golindistdict[term] = -1
+            continue
+        # get position/loc info for each term in list
+        locdict = {}  # dictionary will contain chromosomes as key, list of positions within that chromosome as value
+        for g in genelist:
+            try:
+                locinfo = geneposdict[g]
+            except KeyError as ke:
+                if verbose:
+                    print("KeyError: " + g + " not found in gencode dictionary")
+                continue
+
+            if locinfo.split(":")[0] in locdict:  # if chrom is already in dict, append new position info to list
+                locdict[locinfo.split(":")[0]].append(locinfo.split(":")[1])
+            else:  # else create new entry for chromosome
+                locdict[locinfo.split(":")[0]] = [locinfo.split(":")[1]]
+
+        # get number of valid gene pairs (pairs of genes that exist on the same chromosome)
+        paircount = 0  # keep track of pair count so we can use as divisor for average pairwise distance
+        dist = 0  # keep total distance for all pairs as single value, to be divided by pair count
+        for chrom in locdict.keys():
+            if len(locdict[
+                       chrom]) >= 2:  # only can count pairwise distance if there are at least two genes on chromosome
+                uniquelist = list(
+                    set(locdict[chrom]))  # ensure all gene entries in list are unique by removing duplicates
+                combs = list(combinations(uniquelist, 2))  # get all pairwise combinations
+                paircount = paircount + len(combs)  # add pair count for chromosome to total pair count
+                for c in combs:  # for each pair, find distance between them
+                    g1, g2 = c  # unpack tuple
+                    start1 = g1.split("-")[0]  # get start pos for gene 1
+                    stop1 = g1.split("-")[1]  # get stop pos for gene 1
+                    start2 = g2.split("-")[0]  # get start pos for gene 2
+                    stop2 = g2.split("-")[1]  # get stop pos for gene 2
+                    if verbose:
+                        print(
+                            "start1: " + str(int(start1)) + ", stop1: " + str(int(stop1)) + ", start2: "
+                            + str(int(start2)) + ", stop2: " + str(int(stop2)))
+                    if int(start1) > int(stop2):  # if gene 1 is later pos that gene 2, dist = start1 - stop2
+                        pairdist = int(start1) - int(stop2)
+                        #print(str(start1) + "-" + str(stop2))
+                    elif int(start2) > int(stop1):  # else is opposite
+                        pairdist = int(start2) - int(stop1)
+                        #print(str(start2) + "-" + str(stop1))
+                    else:  # only remaining case should be if start and stop are equal (which should be exceedingly rare)
+                        pairdist = 0
+                    if verbose:
+                        print("pairdist: " + str(pairdist))
+                    dist = dist + pairdist  # add distance of pair to total summed distance
+                if verbose:
+                    print(term + ": " + str(dist) + "bp")
+
+        # get average linear distance for gene set
+        try:
+            avglindist = float(dist) / float(paircount)
+            golindistdict[term] = avglindist
+            if verbose:
+                print("average linear distance for set: " + str(avglindist))
+        except ZeroDivisionError as ze:
+            if verbose:
+                print("Could not calculate linear distance for term: " + term)
+            continue
+
+    # check dict
+    if verbose:
+        for k in list(golindistdict.keys()):
+            print(k + ": " + str(golindistdict[k]))
+
+    # get average linear distance for random pairs of genes (n samples = 1000000)
+    if verbose:
+        print("sampling random gene pairs to get average linear distance (N=" + str(nsamples) + ")...")
+    samplecounter = 0
+    distlist = []
+    with tqdm(total=nsamples) as pbar:  # make pbar for sampling loop
+        while samplecounter < nsamples:
+            genepair = random.sample(list(geneposdict.keys()), 2)
+            if geneposdict[genepair[0]].split(":")[0] == geneposdict[genepair[1]].split(":")[
+                0]:  # if random genes share the same chromosome
+                g1, g2 = genepair  # unpack tuple
+                # print(genepair)
+                # print(geneposdict[genepair[0]])
+                # print(geneposdict[genepair[1]])
+                start1 = geneposdict[genepair[0]].split(":")[1].split("-")[0]  # get start pos for gene 1
+                stop1 = geneposdict[genepair[0]].split(":")[1].split("-")[1]  # get stop pos for gene 1
+                start2 = geneposdict[genepair[1]].split(":")[1].split("-")[0]  # get start pos for gene 2
+                stop2 = geneposdict[genepair[1]].split(":")[1].split("-")[1]  # get stop pos for gene 2
+                if int(start1) > int(stop2):  # if gene 1 is later pos that gene 2, dist = start1 - stop2
+                    pairdist = int(start1) - int(stop2)
+                    #print(str(start1) + "-" + str(stop2))
+                elif int(start2) > int(stop1):  # else is opposite
+                    pairdist = int(start2) - int(stop1)
+                    #print(str(start2) + "-" + str(stop1))
+                else:  # only remaining case should be if start and stop are equal (which should be exceedingly rare)
+                    pairdist = 0
+
+                distlist.append(pairdist)  # append new distance to pairdistlist
+                samplecounter = samplecounter + 1  # increment counter
+                pbar.update()
+
+    # get mean and standard deviation for random gene pairs
+    mean = sum(distlist) / len(distlist)
+    variance = sum([((x - mean) ** 2) for x in distlist]) / len(distlist)
+    stdev = variance ** 0.5
+
+    # create a plot of linear distance vs GO term ranking with line for avg linear distance and std dev
+    # create lists to plot
+    ranking = range(len(rankedgolist))  # data for x-axis
+    rankeddistlist = []  # initialize list for y-axis
+    for term in rankedgolist:  # append distance for each ranked GO term in order from most to least significant
+        try:
+            rankeddistlist.append(golindistdict[term])
+        except KeyError as ke:
+            if verbose:
+                print("no linear distance found for " + term)
+            rankeddistlist.append(-1)
+
+    # replace -1 distances with None
+    ilist = []
+    for i in range(len(rankeddistlist)):
+        if rankeddistlist[i] != -1:
+            ilist.append(i)  # list of indices with actual linear distance values
+    reallindistlist = [rankeddistlist[x] for x in ilist]
+
+    if plot:
+        print("plotting...")
+        # Create a scatter plot
+        plt.figure().set_figwidth(15)
+        plt.scatter(ranking, rankeddistlist, s=0.5, label='Linear Distance vs GO Ranking', color='black')
+
+        # Set labels for the x and y axes
+        plt.xlabel('Ranking of GO term by TPD significance')
+        plt.ylabel('Linear distance (bp)')
+
+        # add lines for avg linear distance and standard deviations
+        meanlabel = "mean = " + str(mean)
+        upperlabel = "stddev = " + str(stdev)
+        plt.axhline(y=mean, color='red', linestyle='-', label=meanlabel)  # mean
+        plt.axhline(y=mean + stdev, color='red', linestyle='--', label=upperlabel)  # stddev upper bound
+        plt.axhline(y=mean - stdev, color='red', linestyle='--')  # stddev lower bound
+
+        # Show a legend
+        plt.legend()
+
+        # Display the plot
+        plt.savefig(outfile)
+        if verbose:
+            print("plot saved as " + outfile)
+
+        corr, _ = pearsonr(ranking, rankeddistlist)
+
+        if verbose:
+            print("Pearson Correlation = " + str(corr))
+
+    if outfile:
+        with open(outfile, "w") as f:
+            for i in rankeddistlist:
+                f.write(str(i) + "\n")
+
+    if verbose:
+        print(rankeddistlist)
+
+    return rankeddistlist
+
+
+# compare average linear distances of nodes in same MCL/Spectral cluster versus average linear distance globally
+def do_linear_analysis_mcl(graphfile, resultsfile, gencodefile, outfile=None, nsamples=10000, verbose=True, plot=True,
+                           plotfile="plot.csv"):
+    # create "gene":"chr:startpos-endpos" dictionary
+    if verbose:
+        print("creating gene:position dictionary...")
+    geneposdict = {}  # initialize dict
+    gencode = pd.read_csv(gencodefile)  # load gencode table
+    for index, row in gencode.iterrows():  # iterate through table
+        chrom = row['seqid']
+        startpos = int(row['start'])
+        endpos = int(row['end'])
+        name = row['attributes'].split(";")[1].split("=")[1].split(".")[0]  # extracts ensembl gene id from attributes column
+
+        valstring = chrom + ":" + str(startpos) + "-" + str(endpos)
+        geneposdict[name] = valstring  # add gene to dict
+    del gencode  # delete from memory to free up resources
+
+    # filter geneposdict so only contains genes that are annotated in the network
+    # load graph
+    if type(graphfile) == str:
+        g = load_graph(graphfile)
+    elif type(graphfile) == Graph:
+        g = graphfile
+    else:
+        print(
+            "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
+    # build graph genes list
+    graphgeneslist = []
+    for v in g.vertices():
+        graphgeneslist.extend(g.vp.genes[v])
+    graphgeneslist = list(set(graphgeneslist))
+    if verbose:
+        print(graphgeneslist[1])
+        print(list(geneposdict.keys())[1])
+        print("# of genes in graph: " + str(len(graphgeneslist)))  # TODO remove later
+    del g
+
+    # use graphgeneslist to filter geneposdict
+    toremovelist = []
+    for gene in geneposdict.keys():
+        if gene not in list(graphgeneslist):
+            toremovelist.append(gene)
+    for gene in toremovelist:
+        geneposdict.pop(gene)
+
+    # get lists of intersecting genes from gprofiler results file
+    clustgenelist = []
+    with open(resultsfile, "r") as rf:
+        for line in rf:
+            if not line.startswith(","):  # ignore header lines
+                genesliststring = line.split("query")[1].split("]")[1].split("[")[1]  # get "intersections" line from gprofiler results
+                geneslistraw = genesliststring.split(", ")  # hack off [] and split into list of strings
+                geneslist = [x[1:-1] for x in geneslistraw]  # hack off '' to clean up gene names
+                clustgenelist.append(geneslist)  # append list to list
+
+    # for each cluster, get average linear distance for genes on same chromosome
+    avg_distlist = []  # list of average distances for each enriched GOterm gene in each cluster
+    for genelist in clustgenelist:
+        distlist = []  # list of distances for averaging later
+        # get all pairwise combinations
+        vcombs = list(combinations(genelist, 2))
+
+        # get distances for all gene pairs that exist on the same chromosome
+        for g1, g2 in vcombs:
+            if g1 in geneposdict and g2 in geneposdict:
+                pos1 = geneposdict[g1]
+                chr1 = pos1.split(":")[0]
+                start1 = int(pos1.split(":")[1].split("-")[0])
+                end1 = int(pos1.split(":")[1].split("-")[1])
+
+                pos2 = geneposdict[g2]
+                chr2 = pos2.split(":")[0]
+                start2 = int(pos2.split(":")[1].split("-")[0])
+                end2 = int(pos2.split(":")[1].split("-")[1])
+
+                #print(pos1 + " -> " + pos2)  # TODO read as verbose option
+
+                if chr1 == chr2:
+                    if start1 > end2 and end1 > end2:  # if 1 is later in chrom than 2
+                        dist = start1 - end2
+                    elif start1 < start2 and end1 < start2:  # if 2 is later in chrom than 1
+                        dist = start2 - end1
+                    else:
+                        dist = 0  # if any overlap dist is 0
+
+                    distlist.append(dist)  # append distances
+                else:
+                    continue  # skip if not same chromosome
+            else:
+                if verbose:
+                    print(g1 + " or " + g2 + " not in dict. Skipping...")  # TODO remove?
+                continue
+
+        # add avg dist to list
+        if distlist:
+            avgdist = sum(distlist)/len(distlist)  # get average (mean) of distances from all nodes that share chromosomes
+        else:
+            avgdist = -1  # if distlist is empty, no nodes are on same chrom so set avgdist to -1
+        avg_distlist.append(avgdist)
+
+    # get average linear distance for random pairs of genes (n samples = 10000)
+    if verbose:
+        print("sampling random gene pairs to get average linear distance (N=" + str(nsamples) + ")...")
+    samplecounter = 0
+    distlist = []
+
+    with tqdm(total=nsamples) as pbar:  # make pbar for sampling loop
+        while samplecounter < nsamples:
+            genepair = random.sample(list(geneposdict.keys()), 2)
+            if geneposdict[genepair[0]].split(":")[0] == geneposdict[genepair[1]].split(":")[0]:  # if random genes share the same chromosome
+                g1, g2 = genepair  # unpack tuple
+                #print(genepair)
+                #print(geneposdict[genepair[0]])
+                #print(geneposdict[genepair[1]])
+                start1 = geneposdict[genepair[0]].split(":")[1].split("-")[0]  # get start pos for gene 1
+                stop1 = geneposdict[genepair[0]].split(":")[1].split("-")[1]  # get stop pos for gene 1
+                start2 = geneposdict[genepair[1]].split(":")[1].split("-")[0]  # get start pos for gene 2
+                stop2 = geneposdict[genepair[1]].split(":")[1].split("-")[1]  # get stop pos for gene 2
+                if int(start1) > int(stop2):  # if gene 1 is later pos that gene 2, dist = start1 - stop2
+                    pairdist = int(start1) - int(stop2)
+                    #print(str(start1) + "-" + str(stop2))
+                elif int(start2) > int(stop1):  # else is opposite
+                    pairdist = int(start2) - int(stop1)
+                    #print(str(start2) + "-" + str(stop1))
+                else:  # only remaining case should be if start and stop are equal (which should be exceedingly rare)
+                    pairdist = 0
+
+                distlist.append(pairdist)  # append new distance to pairdistlist
+                samplecounter = samplecounter + 1  # increment counter
+                pbar.update()
+
+    if plot:
+        # plotting
+
+        # create a plot of linear distance vs random ranking with line for avg linear distance and std dev
+        # create lists to plot
+        if verbose:
+            print("plotting...")
+        ranking = range(len(avg_distlist))  # data for x-axis
+
+        # replace -1 distances with None
+        ilist = []
+        for i in range(len(avg_distlist)):
+            if avg_distlist[i] != -1:
+                ilist.append(i)  # list of indices with actual linear distance values
+        reallindistlist = [avg_distlist[x] for x in ilist]
+
+        # get mean and standard deviation for random gene pairs
+        mean = sum(reallindistlist) / len(reallindistlist)
+        variance = sum([((x - mean) ** 2) for x in reallindistlist]) / len(reallindistlist)
+        stdev = variance ** 0.5
+
+        # Create a scatter plot
+        plt.figure().set_figwidth(15)
+        plt.scatter(ilist, reallindistlist, s=0.5, label='Linear Distance vs significant gene cluster', color='black')
+
+        # Set labels for the x and y axes
+        plt.xlabel('number of enriched gene (random)')
+        plt.ylabel('Linear distance (bp)')
+
+        # add lines for avg linear distance and standard deviations
+        meanlabel = "mean = " + str(mean)
+        upperlabel = "stddev = " + str(stdev)
+        plt.axhline(y=mean, color='red', linestyle='-', label=meanlabel)  # mean
+        plt.axhline(y=mean + stdev, color='red', linestyle='--', label=upperlabel)  # stddev upper bound
+        plt.axhline(y=mean - stdev, color='red', linestyle='--')  # stddev lower bound
+
+        # Show a legend
+        plt.legend()
+
+        # Display the plot
+        plt.savefig(plotfile)
+        if verbose:
+            print("plot saved as " + plotfile)
+
+    if outfile:
+        # write avg distances to file
+        with open(outfile, "w") as outf:
+            for dist in avg_distlist:
+                outf.write(str(dist) + "\n")
+
+
+    return avg_distlist
+
+
 # get list of ks for a graph, where k is the number of vertices annotated with a particular GO term
 def get_vlengths(graph, prop="goterms"):
     godict = make_go_dict(graph, prop=prop)
@@ -1907,50 +2085,6 @@ def label_swap(graph, label="goterms", outfile="swappedGraph.gt", m=3000000):
     return None
 
 
-# # shuffles all goterm and writes new graph with shuffled annotations
-# def swap_all_goterms(graph, outfile="swappedGraph.gt"):
-#     # load graph
-#     if type(graph) == str:
-#         g = load_graph(graph)
-#     elif type(graph) == Graph:
-#         g = graph
-#     else:
-#         print(
-#             "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
-#
-#     #pbar_total = sum(1 for _ in g.iter_vertices())  # total for progress bar
-#
-#     # build list of terms to sample from and dictionary of node:#annotations
-#     annot_per_node_dict = {}
-#     annot_bag = []  # list to be used as a bag randomizer
-#     print("Filling bag randomizer...")
-#     for v in tqdm(g.iter_vertices()):
-#         annot_list = list(g.vp.goterms[v])  # retrieve list of annotations
-#         annot_per_node_dict[v] = len(annot_list)  # get count of annotations for later
-#         annot_bag.extend(annot_list)  # add list of annotations to bag
-#
-#     # shuffle bag
-#     random.shuffle(annot_bag)
-#
-#     # build new property map of shuffled annotations
-#     shuf_annot_prop = g.new_vertex_property("vector<string>")
-#     print("Drawing new annotations from bag...")
-#     for v in tqdm(g.iter_vertices()):
-#         new_annot_list = []
-#         for i in range(0, annot_per_node_dict[v]):
-#             while annot_bag[-1] in new_annot_list:  # ensure new random annotation is not already in list
-#                 random.shuffle(annot_bag)
-#             new_annot_list.append(annot_bag.pop())  # pops values from shuffled bag one at a time until right size
-#
-#         shuf_annot_prop[v] = new_annot_list
-#
-#     # replace old annotations with new annotations
-#     g.vp.goterms = shuf_annot_prop
-#
-#     # write new graph
-#     g.save(outfile)
-
-
 # new implementation of shuffling that guarantees GO terms are annotated to the same number of nodes as originally
 def swap_all_goterms(graph, outfile="swappedGraph.gt"):
     # load graph
@@ -2007,6 +2141,7 @@ def swap_all_goterms(graph, outfile="swappedGraph.gt"):
     # make property map internal and save graph
     g.vp.goterms = new_goterm_prop
     g.save(outfile)
+
 
 # remove nodes with degree greater than degreecutoff from graph
 def trim_nodes_by_degree(graph, outfile="trimmed.gt", degreecutoff=5000):
@@ -2332,7 +2467,7 @@ def extract_interchromosomal_subgraph(graph, outfile, verbose=False):
 
 # creates a graph with low-weight edges removed
 # if weights_are_distances is True, takes edges with lowest values. If False takes highest values
-def create_top_edges_graph(graph, threshold=0.05, outfile="top5percentGraph.gt", weights_are_distances=True):
+def create_top_edges_graph(graph, threshold=0.02, outfile="top5percentGraph.gt", weights_are_distances=True):
     # load graph
     if type(graph) == str:
         g = load_graph(graph)
@@ -2353,6 +2488,7 @@ def create_top_edges_graph(graph, threshold=0.05, outfile="top5percentGraph.gt",
     cutoffIndex = int(len(eWeightList) * threshold)
     cutoffVal = eWeightList[cutoffIndex]
     print("sorted")
+    print(cutoffVal)
 
     # apply a boolean property map where prop=T is edge weight is in the top ?%
     TopPercentEdge = g.new_edge_property("bool")
@@ -2901,8 +3037,7 @@ def get_real_v_null_significants(resultscsv, startstopstep=(0.1, 0, -0.00001),
             # get count in list of pval and shufpval <= pval
             pcount = sum(j <= i for j in df["pval"])
             shufpcount = sum(j <= i for j in df["shufpval"])
-            denom = pcount + shufpcount  # denominator for fdr calc
-            fdr = shufpcount / denom
+            fdr = shufpcount / pcount
 
             if monotonic:  # check if monotonic transformation option is selected (True by default)
                 if fdr < lowestfdr:  # always ensures fdr that gets written is the lowest possible
@@ -2939,7 +3074,7 @@ def get_nodes_with_term(graph, term, cytoscape=False):
 
 
 # takes list of clusters and graph, writes one file per cluster with all the genes on that cluster's nodes
-def prep_clusters_ontologizer(mclfile, graph, outdir="./mclClusterFiles/", verbose=False):
+def prep_clusters_ontologizer(mclfile, graph, outdir="./mclClusterFiles/", verbose=False, clusterfile_delim=","):
     # load graph
     if type(graph) == str:
         g = load_graph(graph)
@@ -2949,7 +3084,8 @@ def prep_clusters_ontologizer(mclfile, graph, outdir="./mclClusterFiles/", verbo
         print("bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
 
     numlines = sum(1 for line in open(mclfile))  # total number of lines in file
-    print("files to create: " + str(numlines))
+    if verbose:
+        print("files to create: " + str(numlines))
     namecounter = 1  # ensures each cluster gets a unique filename equal to the line number
 
     # check if outdir exists and if not create it
@@ -2963,17 +3099,21 @@ def prep_clusters_ontologizer(mclfile, graph, outdir="./mclClusterFiles/", verbo
 
     # for each line in mcl file, take as list of nodes, then iterate through list adding all genes at node to genelist
     for line in f:
-        print(str(namecounter) + "/" + str(numlines), flush=True)
-        strlist = line.split()
-        nodelist = [eval(x) for x in strlist]  # convert strings to ints
-        print(nodelist)
+        if verbose:
+            print(str(namecounter) + "/" + str(numlines), flush=True)
+        strlist = line.split(clusterfile_delim)
+        nodelist = [int(x) for x in strlist[:-1]]  # convert strings to ints
+        if verbose:
+            print(nodelist)
         genelist = []
         for node in nodelist:
+            if verbose:
+                    print(str(node) + ": " + str(g.vp.genes[node]))
             if g.vp.genes[node]:
                 genelist.extend(list(g.vp.genes[node]))
 
             else:
-                print("no genes found")
+                print(str(node) + " no genes found")
 
         genelist = list(set(genelist))  # before writing, make sure all genes in list are unique (TODO: right??)
         if verbose:
@@ -3016,19 +3156,114 @@ def annotate_ab_compartments_hic(graphfile, hicfile, outfile, genomefile):
         print(str(chr) + ":" + str(start) + "-" + str(end) + " -> " + str(compartment))
 
 
-# annotateshic .graphml or .gt with a/b compartment status by PCA and gc content
-#TODO FINISH
-def annotate_ab_compartments(graphfile, outfile, binsize, genomefile):
-    compartments_pca()
-    get_gc_contents()
-    determine_ab()
-    label_ab()
+# annotate nodes with genomic positions using a regions file (.bed)
+def annotate_node_genome_positions(graphfile, regionsfile):
+    # load graph and regions file to get chr, start and end positions for each node and make that info a graph annotation
+    g = load_graph(graphfile)
+    with open(regionsfile, "r") as rf:
+        pos_vp = g.new_vertex_property("string")
+        vcount = 0
+        for line in rf:
+            chrom, startpos, endpos = line.strip().split()
+            pos_vp[vcount] = chrom + ":" + startpos + "-" + endpos
+            vcount = vcount + 1
+        g.vp.pos = pos_vp
 
 
-# for use by annotate_ab_compartments()
-# Extracts contact matrix (numpy), does PCA on it, and writes sign (+1/-1) to file/graph annotations
-#TODO FINISH
-def compartments_pca(graph, outfile):
+# parse genome fasta according to bins in binbedfile, then count and output G/C ratios for each bin
+# the regions file better be sorted in ascending order by chromosome and chrom position or else
+def get_node_gc_ratios(binbedfile, genomefastafile, outfile=None):
+
+    bf = open(binbedfile, "r")  #
+    gf = open(genomefastafile, "r")  # me and who?
+
+    # iterate through bedfile to get lists of node start positions
+    bin_chrom_start_list = []
+
+    for line in bf:
+        bin_chrom_start_list.append(int(line.split()[1]))
+    bf.close()
+
+    # iterate through genome file and count GC content for each node, at each bin boundary store the GC vs ATGC ratio in a list
+    node_gc_ratios_list = []  # list for storing the gc content ratio (NUMGC/NUMALLBASES) of each region
+    pos_counter = 0
+    base_counter = 0
+    gc_counter = 0
+    done_flag = 0
+    nextpos = bin_chrom_start_list.pop(0)
+
+    for line in gf:
+
+        if done_flag:  # if no more bins to get gc ratios for, break loop
+            break
+
+        if line.startswith(">"):
+            if base_counter != 0:
+                gc_ratio = float(gc_counter)/float(base_counter)
+                node_gc_ratios_list.append(gc_ratio)
+                pos_counter = 0
+                base_counter = 0
+                gc_counter = 0
+
+        else:
+            base_list = [x for x in line]
+            base_list.pop()  # remove newline character from line list so it is not counted as a base
+            for b in base_list:
+                # add base to counts depending on identity
+                base_counter = base_counter + 1
+                if b == "G" or b == "C":
+                    gc_counter = gc_counter + 1
+
+                pos_counter = pos_counter + 1
+
+                if pos_counter >= nextpos:
+                    gc_ratio = float(gc_counter) / float(base_counter)
+                    node_gc_ratios_list.append(gc_ratio)
+                    #print(str(gc_counter) + "/" + str(base_counter))  #TODO REMOVE WHEN DONE
+                    #print(gc_ratio)  #TODO REMOVE WHEN DONE
+
+                    base_counter = 0
+                    gc_counter = 0
+
+                    if bin_chrom_start_list:  # get next startpos if there is one
+                        nextpos = bin_chrom_start_list.pop(0)
+                        #print(nextpos)  #TODO REMOVE WHEN DONE
+
+                    else:  # else raise done flag and break loop
+                        done_flag = 1
+                        break
+
+    gf.close()
+
+    if outfile:
+        with open(outfile, "w") as outf:
+            for gc in node_gc_ratios_list:
+                outf.write(str(gc) + "\n")
+
+    return node_gc_ratios_list
+
+
+# annotate graph nodes with G/C ratio as a vertex property "gc_ratio"
+def annotate_nodes_with_gc(graph, gclist, outfile):
+    # load graph
+    if type(graph) == str:
+        g = load_graph(graph)
+    elif type(graph) == Graph:
+        g = graph
+    else:
+        print("bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
+
+    gc_vp = g.new_vertex_property("double")
+
+    for i in range(0, len(gclist)):
+        gc_vp[g.vertex(i)] = gclist[i]
+
+    g.vp["gc_ratio"] = gc_vp
+    g.save(outfile)
+
+
+# takes a graph file and annotates it with value of first principal component "ab_eigenval" for getting A/B compartments
+def annotate_compartments_no_gc(graph, outfile):
     # load graph
     if type(graph) == str:
         g = load_graph(graph)
@@ -3038,20 +3273,146 @@ def compartments_pca(graph, outfile):
         print(
             "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
         sys.exit()
+
     adjacency_matrix = adjacency(g, weight=g.ep.weight).toarray()  # Compute the weighted adjacency matrix
+    pca = PCA(n_components=1)
+    X = pca.fit_transform(adjacency_matrix)
+
+    print(X)
+    print(type(X))
+    print(X.shape)
+    xlist = [float(x[0]) for x in X.tolist()]
+    print(xlist)
+    print(len(xlist))
+
+    ab_vp = g.new_vertex_property("double")
+
+    for i in range(len(xlist)):
+        ab_vp[g.vertex(i)] = xlist[i]
+
+    g.vp["ab_eigenval"] = ab_vp
+    g.save(outfile)
 
 
-# for use by annotate_ab_compartments()
-# extracts the gc content from a binned genome fasta where bins are same size as input graph node bins
-#TODO FINISH
-def get_gc_contents():
-    x = 1
+# only use if annotated with above function
+def ab_cluster_report(graph, clusterfile, outfile="clusters_ab_report.tsv"):
+    # load graph
+    if type(graph) == str:
+        g = load_graph(graph)
+    elif type(graph) == Graph:
+        g = graph
+    else:
+        print(
+            "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
+        sys.exit()
+
+    with open(outfile, "w") as outf:
+        outf.write("numV\tnumNeg\tnumPos\tposRatio\n")
+        with open(clusterfile, "r") as f:
+            for line in f:  # for each node in cluster
+                vlist = line.split(",")
+                ablist = []
+
+                for v in vlist:  # get corresponding eigenvalues of these nodes
+                    ablist.append(g.vp.ab_eigenval[v])
+
+                numv = str(len(ablist))
+                numpos = str(len([x for x in ablist if x >= 0]))
+                numneg = str(len([x for x in ablist if x < 0]))
+                posratio = str(float(numpos)/float(numv))
+
+                outf.write(numv + "\t" + numneg + "\t" + numpos + "\t" + posratio + "\n")
 
 
-# uses gc content and compartment labels (signs) to determine which compartment is A (active, high gc) and which is B
-#TODO FINISH
-def determine_ab():
-    x = 1
+# uses ab_eigenval and gc_ratio vertex properties to assign A/B compartment labels to nodes as vp "ab_compartment"
+def determine_ab_compartments(graph, outfile, verbose=False):
+    # load graph
+    if type(graph) == str:
+        g = load_graph(graph)
+    elif type(graph) == Graph:
+        g = graph
+    else:
+        print(
+            "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
+        sys.exit()
+
+    if verbose:
+        # get number of nodes for use in progress bars
+        vcount = 0
+        for v in g.vertices():
+            vcount = vcount+1
+
+    # build list of nodes for neg and pos compartments
+    neg_vlist = []
+    pos_vlist = []
+    if verbose:
+        print("Building compartment nodelists...")
+        pbar = tqdm(total=vcount)
+    for v in g.vertices():
+        if g.vp.ab_eigenval[v] >= 0:
+            pos_vlist.append(v)
+        else:
+            neg_vlist.append(v)
+        if verbose:
+            pbar.update()
+
+    # get gc ratios for each of those lists
+    neg_gclist = []
+    pos_gclist = []
+
+    # determine which compartment is A and which is B
+    if verbose:
+        print("Determining compartment gc ratios...")
+    for v in neg_vlist:  # get list of GC ratios for negative compartment
+        neg_gclist.append(g.vp.gc_ratio[v])
+    for v in pos_vlist:  # get list of GC ratios for positive compartment
+        pos_gclist.append(g.vp.gc_ratio[v])
+
+    # get the average GC content ratio for each compartment
+    neg_gc_avg = sum(neg_gclist) / len(neg_gclist)
+    if verbose:
+        print("Negative compartment avg GC ratio is " + str(neg_gc_avg) + "...")
+    pos_gc_avg = sum(pos_gclist) / len(pos_gclist)
+    if verbose:
+        print("Positive compartment avg GC ratio is " + str(pos_gc_avg) + "...")
+
+    # assign "A" to whichever commpartment has the higher GC ratio, "B" to other
+    if neg_gc_avg > pos_gc_avg:
+        neg = "A"  # negative values are A compartment
+        pos = "B"  # positive values are B compartment
+        if verbose:
+            print("Negative is A, Positive is B...")
+
+    elif pos_gc_avg > neg_gc_avg:
+        neg = "B"  # negative values are B compartment
+        pos = "A"  # positive values are A compartment
+        if verbose:
+            print("Positive is A, Negative is B...")
+    else:
+        print("Could not determine A/B compartments. Stopping...")
+        sys.exit()
+
+    # create new vertex property "ab_compartment" and fill it with compartment labels
+    ab_vp = g.new_vertex_property("string")
+
+    if verbose:
+        print("Assigning A/B compartment status to nodes...")
+        pbar = tqdm(total=vcount)
+    for v in g.vertices():
+        if g.vp.ab_eigenval[v] >= 0:  # label positive eigenvalues with compartment determined above
+            ab_vp[v] = pos
+        else:  # label negative eigenvalues with compartment determined above
+            ab_vp[v] = neg
+        if verbose:
+            pbar.update()
+
+    # make internal
+    g.vp.ab_compartment = ab_vp
+
+    # save graph
+    if verbose:
+        print("Saving...")
+    g.save(outfile)
 
 
 # for use by annotate_ab_compartments()
@@ -3096,7 +3457,7 @@ def do_spectral_clustering(graph, outfile, method="OPTICS"):
     eigenvalues, eigenvectors = eigsh(laplacian_matrix, k=3, which='SM')  # Eigenvalue Decomposition
 
     # do OPTICS Clustering
-    clust = OPTICS(min_samples=4, xi=0.05).fit(eigenvectors)  # do clustering
+    clust = OPTICS(min_samples=5, xi=0.05).fit(eigenvectors)  # do clustering
     # cluster_labels = clust.labels_[clust.ordering_]
     cluster_labels = clust.labels_
 
@@ -3171,7 +3532,7 @@ def get_go_enrichments(graph, clustersfile, outfile, go_only=True):
                 else:
                     newDF = gp.profile(organism='hsapiens', query=genelist, no_evidences=False)
 
-                newDF.to_csv(outfile, mode='w')
+                newDF.to_csv(outfile, mode='a')
 
 
 # function for plotting GO terms / node distribution
@@ -3460,7 +3821,7 @@ def plot_interchromosomal_contact_tpd_correlation(resultscsv, graph, outcsv=None
 
 # plots the number of terms passing significance threshold at each FDR value
 # input should be csv from get_real_v_null_significants
-def plot_passing_terms_v_fdr_fig(inputcsv, outfile="numtermsVfdrFig.png"):
+def plot_passing_terms_v_fdr_fig(inputcsv, outfile="numtermsVfdrFig.png", xlim=0.25, ylim=150, logy=False):
 
     df = pd.read_csv(inputcsv, sep=", ")  # read input csv into data frame
     df = df.astype({"pvalThreshold": "float", "numReal": "int", "numShuf": "int", "fdr": "float"})
@@ -3480,8 +3841,11 @@ def plot_passing_terms_v_fdr_fig(inputcsv, outfile="numtermsVfdrFig.png"):
     plt.scatter(newdf["fdr"], newdf["numReal"], marker='o', color='b', alpha=0.5)
     #plt.title("Number of real significant GO terms versus False Discovery Rate")
     plt.xlabel("False Discovery Rate")
-    plt.xlim(0, 0.25)
-    plt.ylim(0, 150)
+    plt.xlim(0, xlim)
+    if logy:
+        plt.yscale("log")
+    else:
+        plt.ylim(0, ylim)
     plt.ylabel("Number of statistically significantly clustered GO terms")
     plt.savefig(outfile)
     plt.close()
