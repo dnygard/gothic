@@ -1,0 +1,652 @@
+GOTHiC Functions:
+
+
+count_generator(reader):
+# utility function to quickly get line count of file for tracking progress through file iteration
+reader: an open file instance (e.g. f.raw.reads)
+
+
+sam_adjacencies(sam1, sam2, m=40000, bins=None, chromlengths=None, verbose=False):
+# Converts Hi-C SAM files to adjacency list with nodes representing bins of desired size
+# to use assemblies other than Hg38.13, define a custom vector of size 24 where entries are chrom lengths in order below
+# to use custom bins, define a dict with keys chr1, chr2, ..., and values are a list of bin end positions
+sam1: first of matching .sam files from Hi-C experiment
+sam2: second of matching .sam files from Hi-C experiment 
+m: size of fixed-width bins for Hi-C graph creation in base pairs (default=40000) 
+bins= if not None, a regions file (.bed) with columns (chromosome, start position in bp , end position in bp) specifiying regions to use as nodes in Hi-C graph construction. If None, use fixed-width binning. (default=None) 
+chromlengths: If not None, a list of ints of length 24 specifying the lengths of each chromosome in base pairs. If None, uses default chromosome lengths from Hg38.13 reference genome. (default=None) 
+verbose: if True, print detailed runtime output to stdout. (default=False)
+
+
+hic_adjlist_to_graphml(adjlist, fileprefix="HicGraph"):
+# converts adjacency list from sam_adjacencies() to graphml file
+adjlist: list of list of lists as output by sam_adjacencies() where the outer list specifies chromosome, the first inner lists specify bins, and the innermost lists specify adjacencies in the format [chromosome(str), bin(int), number of contacts(int)]
+fileprefix: str designating prefix to use when naming output files (default="HicGraph")
+
+
+check_contact(binlist, newchrom, newbin):  # listofchromatin contacts from SAMtoGraph,
+# utility function used by sam_adjacencies() to check if a contact exists in the adjacency list data structure and handle it appropriately
+binlist: list of bins to be checked 
+newchrom: str of chromosome name for new contact to be checked
+newbin: int of bin for new contact to be checked
+
+
+save_adjlist(adjlist, outfile):
+# utility function for writing adjlist to file if not being piped directly into hic_adjlist_to_graphml()
+adjlist: adjlist data structure from sam_adjacencies()  
+outfile: str name of .txt file to be saved
+
+
+adjlist_file_to_graphml(adjlistfile, outfile="out.graphml"):
+# takes saved adjlist .tsv file and converts it to
+adjlistfile
+outfile="out.graphml"
+
+
+get_keys_by_value(adict, value):
+# function for retrieving all keys with a given value
+adict: dict object
+value: value to retrieve all keys for 
+
+
+genes_go_annotate(graphmlfile, mapfile="HUMAN_9606_idmapping_selected.tsv", gencodefile="gencode_pcgenes.csv",
+                      m=40000, outfile="annotatedgonet.graphml", go_obo="go-basic.obo", binfile=None):
+# annotates a given fixed-width bin hic network with genes and go terms found in gencodefile and mapfile respectively
+graphmlfile
+mapfile: str name of uniprot or other .tsv file for gene mapping (default="HUMAN_9606_idmapping_selected.tsv")
+gencodefile = str name of gencode genes file "gencode_pcgenes.csv"
+m: int fixed-width binsize used in Hi-C graph creation (default=40000)
+outfile: str name of file to save (default="annotatedgonet.graphml")
+go_obo: str name of obo file from Gene Ontology (default="go-basic.obo")
+binfile=None
+
+
+reactome_annotate(graph, mapfile="Ensembl2Reactome_All_Levels.txt", outfile=None):
+# use mapfile and genes annotated to nodes to annotate nodes with REACTOME pathways
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+mapfile="Ensembl2Reactome_All_Levels.txt"
+outfile: str name of file to save (default=None)
+
+
+def parse_gff3(infile, outfile='./gencode_pcgenes.csv'):
+converts gencode gff3 file to parsed, filtered table
+infile: str name of gencode gff3 file
+outfile: str name of file to save (default='./gencode_pcgenes.csv')
+
+
+make_graph_coo(graph, outfile="graphCOO.tsv"):
+# first though, this function makes the COO from a graph
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save (default="graphCOO.tsv")
+
+
+read_edge_list(file_path):
+# reads an edge list from a TSV file and converts it into a sparse matrix.
+file_path: str name of .tsv edge list
+
+
+prenorm_filter(graph, outfile, min_contacts=2):
+# filters out spurious contacts before normalization
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save
+min_contacts: int minimum number of contacts for an edge not to be filtered out of graph (default=2)
+
+
+save_largest_component_graph(graph, outfile="graphLCC.gt"):
+# extracts the largest connected component from the graph and saves it as a new file
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save (default="graphLCC.gt")
+
+
+ice_balance(infile, outfile):
+# performs ICE normalization (imakaev et al.) on COO matrix
+infile: str name of COO format Hi-C adjacency file 
+outfile: str name of file to save
+
+
+update_weights_from_coo(graph, coo, outgraph):
+# update edge weights from an edge list in COO format
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+coo: str name of COO format Hi-C adjacency file with new edge weights
+outgraph: str name of file to write in .gt or .graphml format
+
+
+make_go_dict(graph, prop="goterms", writefile=None):
+# make a dictionary of 'GOterm': [nodes with that term]
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+prop: str name of property used for graph annotation (default="goterms")
+writefile: str name of file to save (default=None)
+
+
+write_go_dict(graph, outfile):
+# writes go dict to file from annotated graph
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save
+
+
+plot_goterms_per_node_histogram(adict, outfile="GOhistogram.pdf", xlim=250, ylim=250):
+# make a histogram where y is number of GOTERMs found on x number of nodes
+adict: dict object returned from write_go_dict 
+outfile: str name of file to save (default="GOhistogram.pdf")
+xlim: int upper x limit to be used for plotting (default=250)
+ylim: int upper y limit to be used for plotting (default=250)
+
+
+invert_weights(graphfile, outfile="inverted.graphml"):
+# update all weights in graphs so that lower weight = closer proximity so dijkstra does what we want
+graphfile: str name of graph file in .graphml or .gt format
+outfile: str name of file to save (default="inverted.graphml")
+
+
+invert_scale_weights(graphfile, wannotation="weight", outfile="invertScaled.graphml"):
+# for ICE normalization, scale then invert the weights
+graphfile: str name of graph file in .graphml or .gt format
+wannotation: str name of weight annotation used by graph (default="weight")
+outfile: str name of file to save (default="invertScaled.graphml")
+
+
+simple_invert_weights(graphfile, wannotation="weight", outfile="modified.graphml", eps=0.0000001, addone=True):
+# just do 1/x for ICE normalized values?
+graphfile: str name of graph file in .graphml or .gt format
+wannotation: str name of weight annotation used by graph (default="weight")
+outfile: str name of file to save (default="modified.graphml")
+eps: float epsilon value for use by ICE (default=0.0000001)
+addone: if True, add one to all values to prevent divide by zero errors (default=True)
+
+
+modify_weights(graphfile, wannotation="weight", outfile="modified.graphml"):
+# update all weights in graphs so that lower weight = closer proximity so dijkstra does what we want
+# old version for graphs where the weight was previously inverted
+graphfile: str name of graph file in .graphml or .gt format
+wannotation: str name of weight annotation used by graph (default="weight")
+outfile: str name of file to save (default="modified.graphml")
+
+
+graphml_to_gt(graph, outfile="graph.gt"):
+# converts graphml to gt for faster opening in graph tool
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save (default="graph.gt")
+
+
+gt_to_graphml(graph, outfile="graph.graphml"):
+# converts gt to graphml for utility
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save (default="graph.graphml")
+
+
+map_goterms(graph):
+# splits list of goterms (which is a string) to property map for use with find_vertex()
+# Is this necessary? Update: No, but it's a good reference for how property maps work in graph-tool
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+
+
+get_sampling_vector(graph, vmax=None, prop="goterms"):
+# function that obtains sampling vector from network
+# each vertex is added a number of times equal to the number of specified annotations it has
+# possible annotations are "goterms", "genes", "reactomepathways"
+# TODO dont include goterms above threshold that will be counted
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+vmax: int maximum number of vertices in a cluster to calculate. If None, do sampling for all clusters (default=None)
+prop: str name of property used for graph annotation (default="goterms")
+
+
+get_random_tpd(distarray, samplevec, vlength):
+# utility function to pull a weighted sample from the population
+# works by pulling samples randomly from the list, coercing to set to remove duplicates, and repeating until full
+distarray: ndarray containing the shortest path distances between all nodes in the network 
+samplevec: list of possible nodes to pull from
+vlength: int desired length of returned list
+
+
+get_random_tptpd(distarray, samplevec, vlength, tpthresh=0.2):
+# top percent pairwise distance
+# pull a weighted sample from the population
+# works by pulling samples randomly from the list, coercing to set to remove duplicates, and repeating until full
+distarray: distarray: ndarray containing the shortest path distances between all nodes in the network 
+samplevec: list of possible nodes to pull from
+vlength: int desired length of returned list
+tpthresh: float percentage of top nodes to keep in TPD calculation (default=0.2)
+
+
+montecarlo_sample_tpds(distmatrix, vlengths, graph, prop="goterms", m=1000000,
+                           ncores=1, outfile=None, sampling="weighted", approx_after=50000,
+                           plot_distributions=False, plot_prefix="distribution_comparison", plot_dir="KDEplots/"):
+# generate a vector containing the TPD distribution for a given number of vertices (vlength) multiple times
+# vlengths can either be an int or a list of ints
+distmatrix
+vlengths: either be an int or a list of ints of desired length(s) of returned list(s)
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+prop: str name of property used for graph annotation (default="goterms")
+m: int number of samples to perform during MC sampling (default=1000000)
+ncores: int number of cores to use for parallel processing (default=1)
+outfile: str name of file to save (default=None)
+sampling: str type of sampling to be performed. currently only "weighted" is available (default="weighted")
+approx_after: int number of samplings to do before performing KDE estimation (default=50000)
+plot_distributions: if True, plot the distribution after sampling is finished (default=False)
+plot_prefix: str prefix to be used for generated plots if plot_distributions is True (default="distribution_comparison")
+plot_dir: str name of directory to save plots if plot_distributions is true (default="KDEplots/")
+
+
+load_dist_matrix(distmatrix, indexcol=False):
+# loads distance matrix from file into memory, for use by get_tpd, get_random_tpd, etc.
+distmatrix: str name of file containing shortest paths distance matrix for Hi-C graph 
+indexcol: if True, matrix contains indexes as first row/column (default=False)
+
+
+annotate_apsp(graphfile, outfile="distAnnotatedGraph.graphml"):
+# utility function to calculcate All Pairs Shortest Paths via graph-tool and save all shortest distances as annotations
+graphfile: str name of graph file in .graphml or .gt format
+outfile: str name of file to save (default="distAnnotatedGraph.graphml")
+
+
+distmatrix_from_annotations(graphfile, outfile="distmatrix.tsv"):
+# creates a distance matrix from the graph-annotated distances calculated with gt.shortest_distance()
+# row and column indices are based on vertex indices from the graph
+graphfile: str name of graph file in .graphml or .gt format
+outfile: str name of file to save (default="distmatrix.tsv")
+
+
+get_tpd(nodelist, distarray):
+# get tpd for a single set
+nodelist: list of nodes to retrieve TPD for
+distarray: ndarray of shortest paths distances
+
+
+get_tptpd(nodelist, distmatrix, tpthresh=0.4):
+# get tptpd for a single set
+nodelist: list of nodes to retrieve TPD for
+distmatrix: ndarray of shortest paths distances
+tpthresh: float percentage of top nodes to keep in TPD calculation (default=0.4)
+
+
+all_go_tpd(godict, distmatrix, outfile):
+# calculate tpd for all goterms in a given godict (created by make_go_dict())
+godict: dict of GOannotations:nodes from make_go_dict() 
+distmatrix: ndarray of shortest paths distances
+outfile: str name of file to save
+
+
+all_go_tptpd(godict, distmatrix, outfile, tpthresh=0.2):
+# calculate tpd for all goterms in a given godict (created by make_go_dict())
+godict: dict of GOannotations:nodes from make_go_dict() 
+distmatrix: ndarray of shortest paths distances
+outfile: str name of file to save
+tpthresh: float percentage of top nodes to keep in TPD calculation (default=0.2)
+
+
+get_linear_distances_tpd(resultsfile, gafname, gencodefile, outfile=None, nsamples=1000000, verbose=True, plot=True):
+# gets linear distance between nodes/genes from a given set and plot them against their go rank
+resultsfile: str name of results file from all_go_tpd()
+gafname: str name of uniprot gene association file
+gencodefile: str name of gencode file
+outfile: str name of file to save (default=None)
+nsamples: int number of samples to perform (default=1000000)
+verbose: if True, print detailed runtime output to stdout. (default=True)
+plot: if True, plot linear distances as scatter plot vs pval ranked GO term list (default=True)
+
+
+do_linear_analysis_mcl(graphfile, resultsfile, gencodefile, outfile=None, nsamples=10000, verbose=True, plot=True,
+                           plotfile="plot.csv"):
+# compare average linear distances of nodes in same MCL/Spectral cluster versus average linear distance globally
+graphfile: str name of graph file in .graphml or .gt format
+resultsfile: str name of results file from do_markov_clustering() or do_spectal_clustering()
+gencodefile: str name of gencode file
+outfile: str name of file to save (default=None)
+nsamples: int number of samples to perform (default=1000000)
+verbose: if True, print detailed runtime output to stdout. (default=True)
+plot: if True, plot linear distances as scatter plot (default=True)
+plotfile: str name of plot file to be saved (default="plot.csv")
+
+
+get_vlengths(graph, prop="goterms"):
+# get list of ks for a graph, where k is the number of vertices annotated with a particular GO term
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+prop: str name of property used for graph annotation (default="goterms")
+
+
+label_swap(graph, label="goterms", outfile="swappedGraph.gt", m=3000000):
+# pairwise swapping of goterms between random nodes for generation of False Discovery Rate
+# 1000000000x(for random pair of nodes, swap one value of 'goterms')
+# vars refer to go, as in "golist", but could be reactome or any other annotation set as well
+# DEPRECATED in favour of swap_all_goterms()
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+label: str name of property used for graph annotation (default="goterms")
+outfile: str name of file to save (default="swappedGraph.gt")
+m: number of pairwise annotation swaps to perform (default=3000000)
+
+
+swap_all_goterms(graph, outfile="swappedGraph.gt")
+# new implementation of shuffling that guarantees GO terms are annotated to the same number of nodes as originally
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save (default="swappedGraph.gt")
+
+
+trim_nodes_by_degree(graph, outfile="trimmed.gt", degreecutoff=5000):
+# remove nodes with degree greater than degreecutoff from graph
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save (default="trimmed.gt")
+degreecutoff: int maximum degree of a node to not be removed (default=5000)
+
+
+make_numnodes_dict(graph, prop="goterms"):
+# generates csv with every GO term and the number of nodes annotated with that term
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+prop: str name of property used for graph annotation (default="goterms")
+
+
+get_go_tpd_pvals(graph, tpdfile, shuftpdfile, distrnfile, approxdist=False, prop="goterms"):
+# get pvals for every go term
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+tpdfile: str name of results file from all_go_tpd() performed on empirical Hi-C network
+shuftpdfile: str name of results file from all_go_tpd() performed on annotation shuffled Hi-C network
+distrnfile: str name of distributions file from montecarlo_sample_tpds()
+approxdist: deprecated, do not use.
+prop: str name of property used for graph annotation (default="goterms")
+
+
+get_tpd_pvals(tpdfile, shuftpdfile, distrnfile, approxdist=True):
+# get pvals for generic sets from file
+# tpdfiles will need to have columns setname, nnodes, clusterscore(tpd)
+tpdfile: str name of results file from all_go_tpd() performed on empirical Hi-C network
+shuftpdfile: str name of results file from all_go_tpd() performed on annotation shuffled Hi-C network
+distrnfile: str name of distributions file from montecarlo_sample_tpds()
+approxdist: deprecated, do not use.
+
+
+generate_distance_matrix(graphmlfile, outfile="distmatrix.tsv", sofile="gothicAPSP.so", processors=1):
+# system call to c++ program that calculates distance matrix
+# deprecated in favour of using graph-tool's built-in APSP via annotate_apsp
+graphmlfile: str name of graph file in .graphml format
+outfile: str name of file to save (default="distmatrix.tsv")
+sofile: str name of c++ source file for calculating shortest paths distances ="gothicAPSP.so"
+processors: int number of processors to use during parallel processing (default=1)
+
+
+count_edges(g):
+# utility function for counting the number of edges in a graph
+g: graph-tool Graph instance
+
+
+count_vertices(g):
+# utility function for counting the number of vertices in a graph
+g: graph-tool Graph instance
+
+
+chromosome_annotate(g):
+# extracts chromosome from graphmlID for each node and applies it as a new vertex property map
+g: graph-tool Graph instance
+
+
+contact_annotate(g):
+# annotate whether edges repressent intrachromosomal or interchromosomal contacts
+g: graph-tool Graph instance
+
+
+extract_interchromosomal_subgraph(graph, outfile, verbose=False):
+# extract interchromosomal contacts
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save
+verbose: if True, print detailed runtime output to stdout. (default=False)
+
+
+create_top_edges_graph(graph, threshold=0.02, outfile="top5percentGraph.gt", weights_are_distances=True):
+# creates a graph with low-weight edges removed
+# if weights_are_distances is True, takes edges with lowest values. If False takes highest values
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+threshold: float edge weight threshold for filtering (default=0.02)
+outfile: str name of file to save (default="top5percentGraph.gt")
+weights_are_distances: if True, only highest percent of values are kept, If false, only lowest values are ket.=True
+
+
+create_top_edges_plus_mst_graph(graph, threshold=0.05, outfile="top5percentGraph.gt"):
+# creates a graph with low-weight edges removed, but also ensures edges belonging to the minimum spanning tree are kept
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+threshold: float edge weight threshold for filtering (default=0.02)
+outfile: str name of file to save (default="top5percentGraph.gt")
+
+
+retain_top_k_edges_per_node(graph, k=4, outfile=None):
+# takes a graph, removes all but the top k edges per node
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+k: int number of edges to keep per node (default=4)
+outfile: str name of file to save (default=None)
+
+
+retain_top_k_plus_mst_edges_per_node(graph, k=0, outfile=None):
+# takes a graph, removes all but the Minimum Spanning Tree and top k edges per node
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+k: int number of edges to keep per node (default=4)
+outfile: str name of file to save (default=None)
+
+
+split_into_chromosomes(graphfile):
+# annotates HiC graph with chromosomes, then creates a subgraph for each (only including intra-chrom contacts)
+graphfile: str name of graph file in .graphml or .gt format
+
+
+generate_graph_report(graph, outfile="graphReport.txt", use_lcc=True):
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save (default="graphReport.txt")
+use_lcc: use only the largest connected component for stats calulations (default=True)
+
+
+get_top_goterms(resultscsv, outfile="topterms.csv"):
+# function to print list of Top GO terms with FDR and p-val cutoffs for term inclusion
+resultscsv: str name of results file from get_go_tpd_pvals()
+outfile: str name of file to save (default="topterms.csv")
+
+
+get_real_v_null_significants(resultscsv, startstopstep=(0.1, 0, -0.00001),
+                                 outfile="SignificantClustersRealVsShuffledTPD.csv", monotonic=True):
+# take results file and return table with cols: pvalThreshold, numRealPassing, numShufPassing, fdr
+# applies a monotonic traqnsformation to the FDR such that the FDR never decreases
+# ^this is valid because if FDR decreases you can always just pick a higher pval threshold that gave better fdr
+# important that startstopstep always decreases for monotonic transformation to work
+resultscsv: str name of results file from get_go_tpd_pvals()
+startstopstep: tuple of start, stop, and step int values for range of plot (default=(0.1, 0, -0.00001))
+outfile: str name of file to save (default="SignificantClustersRealVsShuffledTPD.csv")
+monotonic: if True, apply monotonic transformation to all values such that the best-case value is kept at each threshold (default=True)
+
+
+get_nodes_with_term(graph, term, cytoscape=False):
+# takes a graph and outputs a list of node ids annotated with a given go term
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+term: str name of GO term (e.g. GO:00006446)
+cytoscape: if True, output list in format to be used in Cytoscape selections =False
+
+
+prep_clusters_ontologizer(mclfile, graph, outdir="./mclClusterFiles/", verbose=False, clusterfile_delim=","):
+# takes list of clusters and graph, writes one file per cluster with all the genes on that cluster's nodes
+mclfile: str name of file containing mcl clusters, where each line contains node IDs for one cluster
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outdir: str name of file to save (default="./mclClusterFiles/")
+verbose: if True, print detailed runtime output to stdout. (default=False)
+clusterfile_delim: delimeter used to separate nodes in the cluster file =","
+
+
+annotate_ab_compartments_hic(graphfile, hicfile, outfile, genomefile):
+# calculates A/B compartments from .hic file and annotates graph
+graphfile: str name of graph file in .graphml or .gt format
+hicfile: str name of the .hic file
+outfile: str name of file to save
+genomefile: str name of the associated genome reference file 
+
+
+annotate_node_genome_positions(graphfile, regionsfile):
+# annotate nodes with genomic positions using a regions file (.bed)
+graphfile: str name of graph file in .graphml or .gt format
+regionsfile: str name of .bed regions file
+
+
+get_node_gc_ratios(binbedfile, genomefastafile, outfile=None):
+# parse genome fasta according to bins in binbedfile, then count and output G/C ratios for each bin
+# the regions file better be sorted in ascending order by chromosome and chrom position or else
+binbedfile: str name of bin regions .bed file
+genomefastafile: str name of FASTA file for reference genome
+outfile: str name of file to save (default=None)
+
+
+annotate_nodes_with_gc(graph, gclist, outfile):
+# annotate graph nodes with G/C ratio as a vertex property "gc_ratio"
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+gclist: list of GC ratios from get_node_gc_ratios
+outfile: str name of file to save
+
+
+annotate_compartments_no_gc(graph, outfile):
+# takes a graph file and annotates it with value of first principal component "ab_eigenval" for getting A/B compartments
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save
+
+
+ab_cluster_report(graph, clusterfile, outfile="clusters_ab_report.tsv"):
+# only use if annotated with above function
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+clusterfile: str name of file containing mcl or spectral clusters, where each line contains node IDs for one cluster
+outfile: str name of file to save (default="clusters_ab_report.tsv")
+
+
+determine_ab_compartments(graph, outfile, verbose=False):
+# uses ab_eigenval and gc_ratio vertex properties to assign A/B compartment labels to nodes as vp "ab_compartment"
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save
+verbose: if True, print detailed runtime output to stdout. (default=False)
+
+
+tads2dict(tadfile):
+# opens tad file (.bed format) and creates a {[chrom]:[list of region bounds], ...} dictionary
+tadfile: str name of .bed regions file
+
+
+do_spectral_clustering(graph, outfile, method="OPTICS"):
+# performs spectral clustering on graph
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save
+method: str method for clustering after spectral deconvolution. currently only OPTICS is implemented (default="OPTICS")
+
+
+do_markov_clustering(graph, outfile, inflation=2):
+# performs Markov clustering on graph
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outfile: str name of file to save
+inflation: int inflation parameter for MCL (default=2)
+
+
+plot_go_terms_per_node(graphfile, binsize=5, outfile="goTermPerNodeHistogram.png"):
+# function for plotting GO terms / node distribution
+graphfile: str name of graph file in .graphml or .gt format
+binsize: size of histogram bins to use in plotting (default=5)
+outfile: str name of file to save (default="goTermPerNodeHistogram.png")
+
+
+plot_genes_per_node(graphfile, binsize=5, outfile="genesPerNodeHistogram.png"):
+# function for plotting genes / node distribution
+graphfile: str name of graph file in .graphml or .gt format
+binsize: size of histogram bins to use in plotting (default=5)
+outfile: str name of file to save (default="genesPerNodeHistogram.png")
+
+
+plot_degree_distribution(graphfile, binsize=5, outfile="degreeHistogram.png"):
+# function for plotting degree distribution
+graphfile: str name of graph file in .graphml or .gt format
+binsize: size of histogram bins to use in plotting (default=5)
+outfile: str name of file to save (default="degreeHistogram.png")
+
+
+plot_edge_weight_distribution(graphfile, binsize=100, outfile="edgeWeightHistogram.png", log=False):
+# function for plotting distribution of edge weights
+graphfile: str name of graph file in .graphml or .gt format
+binsize: size of histogram bins to use in plotting (default=100)
+outfile: str name of file to save (default="edgeWeightHistogram.png")
+log: if True, axes are log scaled (default=False)
+
+
+plot_raw_weight_distribution(graphfile, binsize=100, outfile="rawWeightHistogram.png"):
+# function for plotting edge weights from before transformation
+graphfile: str name of graph file in .graphml or .gt format
+binsize: size of histogram bins to use in plotting (default=100)
+outfile: str name of file to save (default="rawWeightHistogram.png")
+
+
+plot_shortest_path_pairs_distribution(APSPmatrix, binsize=100, outfile="pairwiseShortestPathsHistogram.png", log=False):
+# function for plotting shortest path distribution for all pairs of nodes
+APSPmatrix: ndarray of shortest paths distances
+binsize: size of histogram bins to use in plotting (default=100)
+outfile: str name of file to save (default="pairwiseShortestPathsHistogram.png")
+log: if True, axes are log scaled (default=False)
+
+
+plot_real_shuffled_pval_distributions(results_file, outfile, stepsize=0.001):
+# draws histogram of pvals in real and shuffled graphs to compare distributions (shuffled should be flat, real left skewed)
+resultscsv: str name of results file from get_go_tpd_pvals()
+outfile: str name of file to save
+stepsize=0.001
+
+
+plot_fdr_pval_histogram(results_file, outfile, stepsize=0.001, log_axis=True):
+# draws histogram of significant pvals at decreasing thresholds to determine FDR cutoff (Panel A)
+resultscsv: str name of results file from get_go_tpd_pvals()
+outfile: str name of file to save
+stepsize=0.001
+log_axis: if True, axes are log scaled (default=False)
+
+
+plot_interchromosomal_contact_tpd_correlation(resultscsv, graph, outcsv=None, outplot=None, prop="goterms"):
+# plots correlation of TPD vs # of interchromosomal contacts for each go term or other annotation
+resultscsv: str name of results file from get_go_tpd_pvals()
+graph: either str name of graph file in .graphml or .gt format, or graph-tool Graph instance 
+outcsv: str name of .csv file to be written (default=None)
+outplot: str name of .png plot file to be written (default=None)
+prop: str name of property used for graph annotation (default="goterms")
+
+
+plot_passing_terms_v_fdr_fig(inputcsv, outfile="numtermsVfdrFig.png", xlim=0.25, ylim=150, logy=False):
+# plots the number of terms passing significance threshold at each FDR value
+# input should be csv from get_real_v_null_significants
+resultscsv: str name of results file from get_go_tpd_pvals()
+outfile: str name of file to save (default="numtermsVfdrFig.png")
+xlim: float x limit for plotting (default=0.25)
+ylim: float y limit for plotting (default=150)
+logy: if True, y-axis axis is log scaled (default=False)
+
+
+# full run of the pipeline for TPD analysis, from sam files to final results dataframe plus figures
+# files that need to be in filedir:
+# - map(HUMAN_9606_idmapping_selected.tsv)
+# - gencode(gencode_pcgenes.csv)
+# - go obo(go-basic.obo)
+# - GothicAPSP.so
+# - Ensembl2Reactome_All_Levels.txt
+def gothic_full_run(runname, sam1=None, sam2=None, filedir=".", binsize=80000, vmax=10000, ncores=1,
+                    step=0, endstep=12, binfile=None, saveadjlist=False, filterlevel=0):
+runname
+sam1=None
+sam2=None
+filedir="."
+binsize=80000
+vmax=10000
+ncores=1
+step=0
+endstep=12
+binfile=None
+saveadjlist=False
+filterlevel=0
+    
+
+full run of the pipeline for MCL/Spectral analysis, from sam files to final results dataframe plus figures
+def gothic_full_clustering_run(runname, sam1=None, sam2=None, filedir=".", binsize=80000, vmax=10000, ncores=1,
+                    step=0, endstep=12, binfile=None, saveadjlist=False, filterlevel=0.5):
+runname
+sam1=None
+sam2=None
+filedir="."
+binsize=80000
+vmax=10000
+ncores=1
+step=0
+endstep=12
+binfile=None
+saveadjlist=False
+filterlevel=0.5
+
+    
