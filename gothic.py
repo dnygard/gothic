@@ -37,6 +37,7 @@ if sys.version_info[0] < 3:
 else:
     from io import StringIO
 
+# GOTHiC: Gene Ontology Topology from Hi-C data
 
 # utility function to quickly get line count of file for tracking progress through file iteration
 def count_generator(reader):
