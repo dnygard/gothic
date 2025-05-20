@@ -20,7 +20,7 @@ import os
 import importlib
 import seaborn as sns
 import fanc
-from scipy.sparse import coo_matrix, csr_matrix, csc_matrix, vstack
+from scipy.sparse import coo_matrix, coo_array, csr_matrix, csc_matrix, vstack
 from scipy.stats import gaussian_kde, ks_2samp, pearsonr
 from scipy.sparse.linalg import eigsh
 from iced import normalization
@@ -28,12 +28,16 @@ from gprofiler import GProfiler
 from sklearn.cluster import OPTICS
 from sklearn.decomposition import PCA
 import markov_clustering as mcl
+import hicstraw
+import math
+import logging
 
 if sys.version_info[0] < 3:
     import StringIO
 else:
     from io import StringIO
 
+# GOTHiC: Gene Ontology Topology from Hi-C data
 
 # utility function to quickly get line count of file for tracking progress through file iteration
 def count_generator(reader):
@@ -380,6 +384,121 @@ def hic_adjlist_to_graphml(adjlist, fileprefix="HicGraph"):
     g.save(mlname)
 
 
+# creates hic network from .pairs file
+def create_graph_from_pairs(pairsfile, outfile, binsize=250000, verbose=False, outtsv=None):
+    # instantiate list of chromosomes
+    chrlist = ['chr1', 'chr2', 'chr3', 'chr4', 'chr5', 'chr6', 'chr7', 'chr8', 'chr9', 'chr10', 'chr11', 'chr12',
+               'chr13',
+               'chr14', 'chr15', 'chr16', 'chr17', 'chr18', 'chr19', 'chr20', 'chr21', 'chr22', 'chrX', 'chrY']
+
+    if verbose:
+        print("getting chromosome sizes...")
+    # get chrom sizes from file
+    chromsizedict = {}
+    with open(pairsfile, "r") as pf:
+        for line in pf:
+            if line.startswith("#chromsize:"):  # check line for chromsize identifier
+                splitline = line.split()
+                if splitline[1] in chrlist:  # if chrom is in list we defined above, add that size to chromsizedict
+                    chromsizedict[splitline[1]] = int(splitline[2])
+                else:  # otherwise skip
+                    continue
+
+            elif line.startswith("#columns:"):  # stop file reading once columns are reached
+                break
+            else:
+                continue
+
+    # create empty adjacency matrix according to binsize
+    # create {chrompos:index} dict where chrompos is str of format "chromosome:bin#" and index is int index of that node
+    startindexdict = {}  # dict for starting starting indices of each chromosome
+    nodenamedict = {}  # dict for mapping node# to node name ("chr#:start-stop")
+    nodecounter = 0
+
+    # get count of all nodes and nodes for each chromosome
+    if verbose:
+        print("getting node counts for each chromosome...")
+    for chr in chrlist:
+         startindexdict[chr] = nodecounter
+         nodenamedict[chr] = []
+         for i in range(0, math.floor(chromsizedict[chr]/binsize)):  # divide chromosome length by binsize to know bin
+            nodecounter = nodecounter + 1  # increment total node counter by one
+            # get name of node ("chr#:start-stop") and add to nodenamedict
+            numchrombins = math.ceil(chromsizedict[chr] / binsize)
+            startpos = i * binsize
+            endpos = (i + 1) * binsize - 1
+            nodename = chr + ":" + str(startpos) + "-" + str(endpos)
+            nodenamedict[chr].append(nodename)
+    if verbose:
+        print(str(nodecounter-1) + " nodes")
+
+    # create contact matrix
+    # create empty ndarray for storing hic contact adjacency matrix
+    contactmatrix = np.ndarray((nodecounter, nodecounter))
+    if verbose:
+        print("populating contact matrix...")
+    with open(pairsfile, "r") as pf:  # parse each line for contact information
+        for line in pf:
+            if line.startswith("#"):  # skip all header lines
+                continue
+            else:
+                chr1 = line.split()[1]
+                pos1 = int(line.split()[2])
+                chr2 = line.split()[3]
+                pos2 = int(line.split()[4])
+
+                try:
+                    chr1bin = math.floor(pos1 / binsize) + startindexdict[chr1]  # matrix index for first contact read
+                    chr2bin = math.floor(pos2 / binsize) + startindexdict[chr2]  # matrix index for second contact read
+                except KeyError as ke:
+                    if verbose:
+                        print(ke)
+                    continue
+
+                contactmatrix[chr1bin, chr2bin] = contactmatrix[chr1bin, chr2bin] + 1
+                contactmatrix[chr2bin, chr1bin] = contactmatrix[chr2bin, chr1bin] + 1  # do both ways so symmetrical mat
+
+    if verbose:
+        print(contactmatrix.shape)
+
+    if outtsv:
+        if verbose:
+            print("saving contact matrix tsv...")
+        np.savetxt(outtsv, contactmatrix)  # save as tsv before graph creation
+
+    # create graph
+    if verbose:
+        print("greating graph vertices...")
+    # add all vertices from indices and give them names
+    g = Graph()
+    vname = g.new_vp("string")
+    for chr in chrlist:
+        for i in range(0, len(nodenamedict[chr])):  # divide chromosome length by binsize to know bin
+            v1 = g.add_vertex()
+            vname[v1] = nodenamedict[chr][i]  # accesses node name from list of names in nodenamedict
+
+    # add all edges using values from contactmatrix
+    if verbose:
+        print("creating graph edges...")
+    contactcount = g.new_ep("int")
+    for i in range(0,nodecounter):
+        for j in range(i, nodecounter):  # only traverse the upper triangle of matrix
+            if contactmatrix[i, j] > 0:
+                v1 = g.vertex(i)
+                v2 = g.vertex(j)
+                e1 = g.add_edge(v1, v2)
+                contactcount[e1] = contactmatrix[i, j]
+
+    # make name and contact graph properties internal
+    if verbose:
+        print("saving graph file...")
+    g.vp["vname"] = vname
+    g.ep["raw_contacts"] = contactcount
+    g.ep["weight"] = contactcount  # also save as weight property for robustness/compatability
+    # save graph
+    g.save(outfile)
+
+
 def check_contact(binlist, newchrom, newbin):  # listofchromatin contacts from SAMtoGraph,
     contactflag = 0  # flag raised if adjacency is already in list, so it is not appended
 
@@ -499,6 +618,81 @@ def adjlist_file_to_graphml(adjlistfile, outfile="out.graphml"):
     g.save(outfile)
 
 
+# creates an edgelist from a .hic file to later be converted into a graph format (saves memory)
+def edgelist_from_hic(hicfile, outfile, binsize=100000, norm="None", contact_type="oe"):
+
+    hic = hicstraw.HiCFile(hicfile)
+    chrom_list = []
+
+    for chrom in hic.getChromosomes():
+      chrom_list.append(chrom.name)
+
+    matrix_object = hic.getMatrixZoomData('chr1', 'chr2', "observed", "None", "BP", 250000)  # alt way of getting contacts
+    print(matrix_object)
+
+    with open(outfile, "w") as f:
+        for first_chrom in tqdm(chrom_list, total=len(chrom_list)):
+            if first_chrom != "All":
+                for second_chrom in chrom_list:
+                    if second_chrom != "All":
+                        result = hicstraw.straw(contact_type, norm, hicfile, first_chrom, second_chrom, 'BP', binsize)
+                        for i in range(len(result)):
+                            # v1 = first_chrom + ":" + str(int(int(result[i].binX) / binsize))
+                            # v2 = second_chrom + ":" + str(int(int(result[i].binY) / binsize))
+                            v1 = first_chrom + ":" + str(int(int(result[i].binX)))
+                            v2 = second_chrom + ":" + str(int(int(result[i].binY)))
+                            f.write("{0}\t{1}\t{2}\n".format(v1, v2, result[i].counts))
+
+
+# reads edgelist .tsv file from edgelist_from_hic() and converts it into a .gt graph file
+def graph_from_hic_edgelist(edgelist_file, outfile, interchrom_only=False):
+
+    g = Graph(directed=False)
+    weight = g.new_edge_property("double")  # ep map for edge weight
+    g.edge_properties["weight"] = weight  # make weight an internal property
+    edge_list = []
+    vname_index_dict = {}
+    index_counter = 0
+
+    # count lines in file
+    with open(edgelist_file, "rb") as f:
+        num_lines = sum(1 for _ in f)
+
+    with open(edgelist_file, "r") as f:
+        for line in tqdm(f, total=num_lines):
+            v1str, v2str, wstr = line.split("\t")
+            if interchrom_only:
+                if v1str.split(":")[0] == v2str.split(":")[0]:
+                    continue
+            if v1str not in vname_index_dict.keys():
+                vname_index_dict[v1str] = index_counter
+                index_counter = index_counter + 1
+            if v2str not in vname_index_dict.keys():
+                vname_index_dict[v2str] = index_counter
+                index_counter = index_counter + 1
+            v1 = vname_index_dict[v1str]
+            v2 = vname_index_dict[v2str]
+
+            e = g.add_edge(v1, v2)
+            g.ep.weight[e] = float(wstr)
+
+            # edge_list.append((v1, v2, float(wstr)))
+        # g.add_edge_list(edge_list, eprops=weight)
+
+        print("Hoi!")
+        g.save(outfile)
+        print("Hoi!")
+    # label all vertices with genome bin ids
+    vname = g.new_vertex_property("string")  # vp map for node names (chromosome-bin pairs)
+    for i in vname_index_dict.keys():
+        vname[vname_index_dict[i]] = i
+
+    g.vertex_properties["vname"] = vname
+    print("Hoi!")
+    g.save(outfile)
+    print("Hoi!")
+
+
 # function for retrieving all keys with a given value
 def get_keys_by_value(adict, value):
     keylist = []
@@ -511,7 +705,195 @@ def get_keys_by_value(adict, value):
 
 
 # annotates a given hic network with genes and go terms found in gencodefile and mapfile respectively
-def genes_go_annotate(graphmlfile, mapfile="HUMAN_9606_idmapping_selected.tsv", gencodefile="gencode_pcgenes.csv",
+def genes_go_annotate(graphfile, mapfile="HUMAN_9606_idmapping_selected.tsv", gencodefile="gencode_pcgenes.csv",
+                          binsize=250000, outfile="annotatedgonet.graphml", go_obo="go-basic.obo", binfile=None):
+    start_time = time.time()
+
+    go = obo_parser.GODag(go_obo)  # initialize go file
+
+    gencode = pd.read_csv(gencodefile)  # load gencode table
+    mapping = pd.read_csv(mapfile, sep='\t')  # load mapping table
+
+    # create attribute dictionaries, dict name will be attribute name in graph
+    goterms = {}  # key is node name (chr[#]:[bin]), value is list of goterms
+    genes = {}  # key is node name (chr[#]:[bin]), value is list of genes
+
+    try:
+        if binfile is None:
+            # create new vname prop to match old style (chr#:chromnodenumber vs chr#:startpos-endpos)
+            g = load_graph(graphfile)
+            newvname = g.new_vertex_property("string")
+            for v in g.vertices():
+                vn = g.vp.vname[v]
+                chrom = vn.split(":")[0]
+                startpos = int(vn.split(":")[1].split("-")[0])
+                newvname[v] = chrom + ":" + str(int(startpos/binsize))
+                print(newvname[v])
+
+            # for each gene, take centroid between start and end pos, then convert pos to bin. annotate that bin
+            print("creating gene annotations...")
+            print("--- %s seconds since start ---" % (time.time() - start_time))
+            for index, row in gencode.iterrows():
+                chrom = row['seqid']
+                startpos = int(row['start'])
+                endpos = int(row['end'])
+                centroid = int(startpos + endpos / 2)
+                centrebin = int(centroid / binsize)
+
+                # for each node to be annotated, check if key exists, then create/append new gene as necessary
+                nodename = chrom + ':' + str(centrebin)
+                if nodename in genes:  # if key already exists, append new gene
+                    genes[nodename].append(row['id'])
+                else:  # else make new gene list that contains gene
+                    genes[nodename] = [row['id']]
+
+        else:  # if binfile is included, use that (should be bed format chr#\wstart\wend)
+            # for each bin, take centroid between start and end pos, then convert pos to bin. annotate that bin
+            print("creating gene annotations...")
+            print("--- %s seconds since start ---" % (time.time() - start_time))
+
+            # make a dict for bin ranges
+            bindict = {"chr1": [], "chr2": [], "chr3": [], "chr4": [], "chr5": [], "chr6": [], "chr7": [], "chr8": [],
+                       "chr9": [], "chr10": [], "chr11": [], "chr12": [], "chr13": [], "chr14": [], "chr15": [],
+                       "chr16": [],
+                       "chr17": [], "chr18": [], "chr19": [], "chr20": [], "chr21": [], "chr22": [], "chrX": [],
+                       "chrY": [],
+                       "chrM": []}
+            # populate it with bin start and end positions
+            f = open(binfile, "r")
+            for line in f:
+                chrom, startpos, endpos = line.split()
+                binbounds = str(startpos) + "-" + str(endpos)
+                bindict[chrom].append(binbounds)
+            f.close()
+
+            # iterate through all protein coding genes and add them to appropriate bins
+            for index, row in gencode.iterrows():
+                chrom = row['seqid']
+                startpos = int(row['start'])
+                endpos = int(row['end'])
+                centroid = int(startpos + endpos / 2)
+                genename = row['id']
+
+                indexcounter = 0  # counts iters to keep track of bin index, which is used in vname ("[chr]:[bindex]")
+                for whichbin in bindict[chrom]:
+                    binstart, binend = whichbin.split("-")  # get bin start and end positions from name
+                    if int(binstart) <= centroid <= int(binend):  # if centroid is in bin
+                        nodename = chrom + ':' + str(indexcounter)  # nodename set to match vname
+                        if nodename in genes:  # if key already exists, append new gene
+                            genes[nodename] = genes[nodename] + [genename]
+                        else:  # else make new gene list that contains gene
+                            genes[nodename] = [genename]
+                    indexcounter = indexcounter + 1  # increments index
+
+        # for each node, for each gene, add associated GO terms to new dictionary with node as key, GO term as value
+        print("creating GO annotations...")
+        print("--- %s seconds since start ---" % (time.time() - start_time))
+        for ind, ro in tqdm(mapping.iterrows()):  # iterate through mapping table
+            ids = str(ro.Ensembl)  # split multiple ids into individual ones
+            ids = ids.split("; ")
+            for emblid in ids:  # iterate through those ensembl ids
+                keys = get_keys_by_value(genes, emblid)  # get all nodes with that gene
+                for i in keys:  # iterate through that
+                    termstring = str(ro.GO)
+                    terms = termstring.split("; ")  # coerce string (list of go terms) to list
+                    if i not in goterms:  # if no go terms yet, initialize list
+                        goterms[i] = terms
+                    else:  # else append to list
+                        goterms[i] = goterms[i] + terms
+
+        # for each node, for each GO term add all parent terms to dictionary
+        print("adding parent GO terms...")
+        print("--- %s seconds since start ---" % (time.time() - start_time))
+
+        for node in tqdm(goterms.keys()):
+            try:
+                ogterms = goterms[node]  # original list of terms
+                if 'nan' in ogterms:
+                    ogterms.remove('nan')  # remove NaNs
+                allterms = ogterms  # list for all terms to be added to, starting with oglist
+                for term in ogterms:
+                    if term != 'nan':  # skip NaNs
+                        rec = go[term]
+                        parents = list(rec.get_all_parents())
+                        allterms = allterms + parents
+                allterms = list(set(allterms))  # removes duplicates from list
+                goterms[node] = allterms
+            except KeyError as keyerror:
+                print("keyerror: ")
+                print(keyerror)  # prints GOTERMS not found in file
+
+            except TypeError:  # ignore nans if they still exist
+                pass
+
+        print("adding annotations to graph...")
+        print("--- %s seconds since start ---" % (time.time() - start_time))
+        # initialize new vertex property objects
+        geneprop = g.new_vertex_property("vector<string>")
+        goprop = g.new_vertex_property("vector<string>")
+
+        if binfile is None:
+            x=0  # TODO remove
+            # loop iterates through all gene annotations and adds them to geneprop
+            for k in genes.keys():
+                try:
+                    v = g.vertex_index[find_vertex(g, newvname, str(k))[0]]  # finds vertex index from vertex name (e.g."chr11:23"->5621)
+                    geneprop[v] = genes[k]
+                except IndexError:
+                    x = x+1  # REMOVE
+                    # TODO it might be bad to ignore empty nodes. Should add missing nodes to the graph? how to connect?
+                    print("no available vertex for " + str(k) + ". skipping...")
+                    print(newvname[g.vertex(x)])  # REMOVE
+
+            # loop iterates through all go annotations and adds them to goprop
+            for k in goterms.keys():
+                try:
+                    v = g.vertex_index[find_vertex(g, newvname, str(k))[
+                        0]]  # finds vertex index from vertex name (e.g."chr11:23"->5621)
+                    goprop[v] = goterms[k]
+                except IndexError:
+                    # TODO it might be bad to ignore empty nodes. Should add missing nodes to the graph? how to connect?
+                    print("no available vertex for " + str(k) + ". skipping...")
+
+        else:
+            # loop iterates through all gene annotations and adds them to geneprop
+            for k in genes.keys():
+                try:
+                    v = g.vertex_index[find_vertex(g, g.vp["vname"], str(k))[
+                        0]]  # finds vertex index from vertex name (e.g."chr11:23"->5621)
+                    geneprop[v] = genes[k]
+                except IndexError:
+                    # TODO it might be bad to ignore empty nodes. Should add missing nodes to the graph? how to connect?
+                    print("no available vertex for " + str(k) + ". skipping...")
+
+            # loop iterates through all go annotations and adds them to goprop
+            for k in goterms.keys():
+                try:
+                    v = g.vertex_index[find_vertex(g, g.vp["vname"], str(k))[
+                        0]]  # finds vertex index from vertex name (e.g."chr11:23"->5621)
+                    goprop[v] = goterms[k]
+                except IndexError:
+                    # TODO it might be bad to ignore empty nodes. Should add missing nodes to the graph? how to connect?
+                    print("no available vertex for " + str(k) + ". skipping...")
+
+        # make property maps internal
+        g.vertex_properties["genes"] = geneprop  # networkx naming convention kept for back compatibility
+        g.vertex_properties["goterms"] = goprop  # networkx naming convention kept for back compatibility
+
+        print("writing graph to file...")
+        print("--- %s seconds since start ---" % (time.time() - start_time))
+        g.save(outfile)
+
+    except MemoryError as memerror:
+        print(memerror)
+
+    print("Annotated graph saved as " + outfile)
+    print("--- %s seconds since start ---" % (time.time() - start_time))
+
+
+# annotates a given hic network with genes and go terms found in gencodefile and mapfile respectively
+# DEPRECATED due to new way of using vname for node position
+def genes_go_annotate_old(graphfile, mapfile="HUMAN_9606_idmapping_selected.tsv", gencodefile="gencode_pcgenes.csv",
                       m=40000, outfile="annotatedgonet.graphml", go_obo="go-basic.obo", binfile=None):
 
     start_time = time.time()
@@ -625,7 +1007,7 @@ def genes_go_annotate(graphmlfile, mapfile="HUMAN_9606_idmapping_selected.tsv", 
 
         print("adding annotations to graph...")
         print("--- %s seconds since start ---" % (time.time() - start_time))
-        g = load_graph(graphmlfile)
+        g = load_graph(graphfile)
         # initialize new vertex property objects
         geneprop = g.new_vertex_property("vector<string>")
         goprop = g.new_vertex_property("vector<string>")
@@ -843,16 +1225,24 @@ def ice_balance(infile, outfile):
     mat = coo_matrix((values, (row, col)), shape=(n, n))
 
     # do ice
-    normed_mat = normalization.ICE_normalization(mat)
-    row, col, values = normed_mat.row, normed_mat.col, normed_mat.data
+    normed_mat = normalization.ICE_normalization(mat).toarray()
+    del mat
+    print("normalization done. Writing to file...")
 
-    # Write normalized data to output file
-    with open(outfile, 'w') as f:
-        for r, c, v in zip(row, col, values):
-            if v != 0:  # Optionally skip writing zero values to output
-                f.write(f'{r} {c} {v}\n')
+    tril_normed_mat = np.tril(normed_mat, k=-1)  # get triangular matrix without the main diagonal
+    del normed_mat
+
+    writelist = []
+    sources, targets = tril_normed_mat.nonzero()
+    for src, tgt in tqdm(zip(sources.tolist(), targets.tolist()), total=len(sources)):
+        writelist.append(str(src) + " " + str(tgt) + " " + str(tril_normed_mat[src, tgt]) + "\n")
+
+    with open(outfile, "w") as f:
+        f.writelines(writelist)
 
 
+# updates edgeweights from a COO file. Mostly for use with ice_balance() or other normalization methods
+# actually creates a new graph rather than updating old one, as updating turns out to be very slow
 def update_weights_from_coo(graph, coo, outgraph):
     # update edge weights with normalized values
     # load graph
@@ -863,19 +1253,69 @@ def update_weights_from_coo(graph, coo, outgraph):
     else:
         print("bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
 
-    f = open(coo, "r")  # open normalized COO for reading
+    # create new graph with vertices from original graph
+    g2 = Graph(directed=False)
+    g2vname = g2.new_vertex_property("string")
+    for v in g.vertices():
+        v1 = g2.add_vertex()
+        g2vname[v1] = g.vp.vname[v]  # copies vname (str chromosome position) to copied vertex in new graph
+    g2.vp["vname"] = g2vname
+    print("Vertices added to new graph")
 
-    # make new edge weight dict to become new EdgePropertyMap
-    eweight_dict = g.new_edge_property("double")
-    for line in f:
-        splitline = line.split()
-        thisedge = g.edge(int(splitline[0]), int(splitline[1]))
-        eweight_dict[thisedge] = float(splitline[2])  # add new weight to dict
+    eweight_dict = g2.new_edge_property("double")
+    # draw edges based on new weights
+    with open(coo, "r") as cf:
+        lc = len(cf.readlines())
+    with open(coo, "r") as cf:
+        for line in tqdm(cf, total=lc):
+            splitline = line.split()
+            src = int(splitline[0])
+            tgt = int(splitline[1])
+            val = float(splitline[2])
 
-    # make new edge map internal, replacing old weight property
-    g.edge_properties["weight"] = eweight_dict
+            e1 = g2.add_edge(g2.vertex(src), g2.vertex(tgt))
+            eweight_dict[e1] = val
 
+    g2.ep["weight"] = eweight_dict  # make weight property internal
+
+    # copy mods graph property
+    try:
+        g2.gp["mods"] = g.gp.mods
+    except ValueError:
+        print("Could not add mods graph property to updated graph")
     # write new graph file
+    g2.save(outgraph)
+
+
+def remove_self_edges(graph, outgraph):
+    # load graph
+    if type(graph) == str:
+        g = load_graph(graph)
+    elif type(graph) == Graph:
+        g = graph
+    else:
+        print(
+            "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
+
+    vcount = count_vertices(g)
+    g.set_fast_edge_removal()
+
+    # create list of edge tuples for all adges with identical source and target vertices
+    sedgelist = [(x, x) for x in np.arange(0,vcount)]
+
+    for s,t in sedgelist:
+        sedge = g.edge(g.vertex(s),g.vertex(t))
+        if not isinstance(sedge, type(None)):
+            g.remove_edge(sedge)
+
+    # add diagonal removal to list of mods
+    try:
+        g.gp.mods.append("Self-edges removed")
+    except AttributeError:
+        mods = g.new_gp("vector<string>")
+        g.gp["mods"] = mods
+        g.gp.mods.append("Self-edges removed")
+
     g.save(outgraph)
 
 
@@ -1031,6 +1471,15 @@ def simple_invert_weights(graphfile, wannotation="weight", outfile="modified.gra
     else:
         print("Invalid weight annotation. You must choose either \"weight\" or \"raw_weight\".")
 
+    # add modification to mods list graph property
+    try:
+        g.gp.mods.append("Annotated with genes")
+        g.gp.mods.append("Annotated with goterms")
+    except AttributeError:
+        mods = g.new_gp("vector<string>")
+        g.gp["mods"] = mods
+        g.gp.mods.append("Annotated with genes")
+        g.gp.mods.append("Annotated with goterms")
     g.save(outfile)
 
 
@@ -2467,7 +2916,7 @@ def extract_interchromosomal_subgraph(graph, outfile, verbose=False):
 
 # creates a graph with low-weight edges removed
 # if weights_are_distances is True, takes edges with lowest values. If False takes highest values
-def create_top_edges_graph(graph, threshold=0.02, outfile="top5percentGraph.gt", weights_are_distances=True):
+def create_top_edges_graph(graph, threshold=0.05, outfile="top5percentGraph.gt", weights_are_distances=True):
     # load graph
     if type(graph) == str:
         g = load_graph(graph)
@@ -3622,6 +4071,34 @@ def plot_edge_weight_distribution(graphfile, binsize=100, outfile="edgeWeightHis
     plt.close()
 
 
+# function for plotting distribution of edge weights
+def plot_raw_weight_distribution(graphfile, binsize=100, outfile="edgeWeightHistogram.png", log=False):
+    print("loading " + graphfile + " for plotting...")
+    g = load_graph(graphfile)
+
+    hist, bins, _ = plt.hist(g.ep.weight.a, bins=binsize)
+    if log:
+        logbins = np.logspace(np.log10(bins[0]), np.log10(bins[-1]+1), len(bins))
+    else:
+        logbins = binsize
+
+    plt.clf()
+    # Create histogram
+    plt.hist(g.ep.raw_weight.a, bins=logbins, color='black')
+
+    # Add labels and title
+    plt.xlabel('Edge weight')
+    plt.ylabel('Count')
+    #plt.xlim(0.1, 1000)  # why does setting this result in such a strange plot?
+    if log:
+        plt.yscale('log')
+        plt.xscale('log')  # TODO remove this line
+
+    # Save the figure
+    plt.savefig(outfile)
+    plt.close()
+
+
 # function for plotting edge weights from before transformation
 def plot_raw_weight_distribution(graphfile, binsize=100, outfile="rawWeightHistogram.png"):
     print("loading " + graphfile + " for plotting...")
@@ -3688,7 +4165,7 @@ def plot_real_shuffled_pval_distributions(results_file, outfile, stepsize=0.001)
 
     pylist = [float(x) for x in pvals]  # convert to numeric
     shufpylist = [float(x) for x in shufpvals]  # convert to numeric
-    xlist = list(np.arange(stepsize, 0.1 + stepsize, stepsize))
+    xlist = list(np.arange(0, 1 + stepsize, stepsize))
 
     plt.clf()
     # Create histogram
@@ -3902,7 +4379,7 @@ def gothic_full_run(runname, sam1=None, sam2=None, filedir=".", binsize=80000, v
         goobo = filedir + "/go-basic.obo"
         reactomemap = filedir + "/Ensembl2Reactome_All_Levels.txt"
         newgraphname = runname + "_incompleteannotated.graphml"
-        genes_go_annotate(graphname, mapfile=mymap, gencodefile=gencode, m=binsize,
+        genes_go_annotate(graphname, mapfile=mymap, gencodefile=gencode, binsize=binsize,
                           binfile=binfile, outfile=newgraphname, go_obo=goobo)
         oldgraphname = newgraphname
         newgraphname = runname + "_annotated.graphml"
@@ -4081,7 +4558,7 @@ def gothic_full_clustering_run(runname, sam1=None, sam2=None, filedir=".", binsi
         goobo = filedir + "/go-basic.obo"
         reactomemap = filedir + "/Ensembl2Reactome_All_Levels.txt"
         newgraphname = runname + "_incompleteannotated.graphml"
-        genes_go_annotate(graphname, mapfile=mymap, gencodefile=gencode, m=binsize,
+        genes_go_annotate(graphname, mapfile=mymap, gencodefile=gencode, binsize=binsize,
                           binfile=binfile, outfile=newgraphname, go_obo=goobo)
         oldgraphname = newgraphname
         newgraphname = runname + "_annotated.graphml"
