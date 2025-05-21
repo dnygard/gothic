@@ -499,6 +499,55 @@ def create_graph_from_pairs(pairsfile, outfile, binsize=250000, verbose=False, o
     g.save(outfile)
 
 
+# uses the fanc api to retrieve TADs
+def sam_to_hic(sam1, sam2, outname, outfolder=".", genomefile="hg38.fa", restriction_enzyme="HindIII", nthreads=1):
+    # load and sort sam files
+    s1 = fanc.load(sam1)
+    s2 = fanc.load(sam2)
+    sorted_s1 = sort_natural_sam(s1)
+    sorted_s2 = sort_natural_sam(s2)
+
+    # load genome regions from genome fasta
+    fragments = genome_regions(genomefile, restriction_enzyme=restriction_enzyme)
+
+    # filter reads
+    quality_filter = QualityFilter(30, mask='MAPQ')
+    uniqueness_filter = UniquenessFilter(strict=True, mask='unique')
+
+    # generate pairs
+    pairs_folder = mkdir(os.path.join(outfolder, 'pairs'))
+    pairsname = outname + ".pairs"
+    pairs = generate_pairs(sorted_s1, sorted_s2, fragments,
+                           read_filters=(quality_filter, uniqueness_filter),
+                           output_file=os.path.join(pairs_folder, pairsname),
+                           check_sorted=True, threads=nthreads)
+
+    # filter pairs
+    sl_filter = SelfLigationFilter(mask='self-ligation')
+    pairs.filter(sl_filter)
+
+    # obtain hic
+    hic_folder = mkdir(os.path.join(outfolder, 'hic'))
+    hicname = outname + ".hic"
+    hic_file = os.path.join(hic_folder, hicname)
+    hic = pairs.to_hic(file_name=hic_file)
+
+    # filter hic
+    lc_filter = LowCoverageFilter(binned_hic, rel_cutoff=0.2)  # filter out low coverage contacts
+    dg_filter = DiagonalFilter(binned_hic)  # set diagonal to 0
+    binned_hic.filter(lc_filter)
+    binned_hic.filter(dg_filter)
+    binned_hic.run_queued_filters()
+
+    # ICE balance
+    ice_balancing(binned_hic)
+
+
+# uses fanc hic file from above function or other the fanc api function to retrieve TADs
+def tads_from_hic():
+    print()
+
+
 def check_contact(binlist, newchrom, newbin):  # listofchromatin contacts from SAMtoGraph,
     contactflag = 0  # flag raised if adjacency is already in list, so it is not appended
 
