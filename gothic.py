@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 from itertools import combinations
 import csv
@@ -24,7 +25,7 @@ from scipy.sparse import coo_matrix, coo_array, csr_matrix, csc_matrix, vstack
 from scipy.stats import gaussian_kde, ks_2samp, pearsonr
 from scipy.sparse.linalg import eigsh
 from iced import normalization
-from gprofiler import GProfiler
+from gprofiler import gprofiler
 from sklearn.cluster import OPTICS
 from sklearn.decomposition import PCA
 import markov_clustering as mcl
