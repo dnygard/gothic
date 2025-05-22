@@ -503,10 +503,10 @@ def create_graph_from_pairs(pairsfile, outfile, binsize=250000, verbose=False, o
 # uses the fanc api to retrieve TADs
 def sam_to_hic(sam1, sam2, outname, outfolder=".", genomefile="hg38.fa", restriction_enzyme="HindIII", nthreads=1):
     # load and sort sam files
-    s1 = fanc.load(sam1)
-    s2 = fanc.load(sam2)
-    sorted_s1 = sort_natural_sam(s1)
-    sorted_s2 = sort_natural_sam(s2)
+    #s1 = fanc.load(sam1)
+    #s2 = fanc.load(sam2)
+    sorted_s1 = sort_natural_sam(sam1)
+    sorted_s2 = sort_natural_sam(sam2)
 
     # load genome regions from genome fasta
     fragments = genome_regions(genomefile, restriction_enzyme=restriction_enzyme)
@@ -516,7 +516,7 @@ def sam_to_hic(sam1, sam2, outname, outfolder=".", genomefile="hg38.fa", restric
     uniqueness_filter = UniquenessFilter(strict=True, mask='unique')
 
     # generate pairs
-    pairs_folder = mkdir(os.path.join(outfolder, 'pairs'))
+    pairs_folder = os.mkdir(os.path.join(outfolder, 'pairs'))
     pairsname = outname + ".pairs"
     pairs = generate_pairs(sorted_s1, sorted_s2, fragments,
                            read_filters=(quality_filter, uniqueness_filter),
@@ -528,7 +528,7 @@ def sam_to_hic(sam1, sam2, outname, outfolder=".", genomefile="hg38.fa", restric
     pairs.filter(sl_filter)
 
     # obtain hic
-    hic_folder = mkdir(os.path.join(outfolder, 'hic'))
+    hic_folder = os.mkdir(os.path.join(outfolder, 'hic'))
     hicname = outname + ".hic"
     hic_file = os.path.join(hic_folder, hicname)
     hic = pairs.to_hic(file_name=hic_file)
