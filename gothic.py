@@ -544,9 +544,28 @@ def sam_to_hic(sam1, sam2, outname, outfolder=".", genomefile="hg38.fa", restric
     ice_balancing(binned_hic)
 
 
-# uses fanc hic file from above function or other the fanc api function to retrieve TADs
-def tads_from_hic():
-    print()
+# use hic file from fanc to retrieve TADs
+def insulations_from_hic(hicfile, outfolder=".", window=[100000], cut=[0.02],
+                         insulations_prefix="FANCregionsTADs"):
+
+    # make output directory
+    if not os.path.exists(outfolder):
+        os.makedirs(outfolder)
+
+    tables.file._open_files.close_all()  # force close all open hdf5 files
+
+    hic = fanc.load(hicfile)
+    insulation_outfile = insulations_prefix + ".insulations"
+    insulation_outfile = os.path.join(outfolder, insulation_outfile)
+    insulation = fanc.InsulationScores.from_hic(hic, window, file_name=insulation_outfile)
+
+    for winsize in window:
+        for cutsize in cut:
+            boundaries = fanc.Boundaries.from_insulation_score(insulation, window_size=winsize, min_score=cutsize)
+            cutstring = str(cutsize).replace(".", "pt")
+            outbed = insulations_prefix + "_" + cutstring + "Cutoff_" + str(window) + "WINDOW.bed"
+            outbedpath = os.path.join(outfolder, outbed)
+            boundaries.to_bed(outbedpath)
 
 
 def check_contact(binlist, newchrom, newbin):  # listofchromatin contacts from SAMtoGraph,
