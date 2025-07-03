@@ -18,7 +18,9 @@ or use your preferred versions of GO-obo, gencode, and uniprot IDmapping files. 
 
 ![Heatmap visualization of A/B compartments and Network visualization of GO terms with GOTHiC](https://github.com/user-attachments/assets/45a5e6b3-aba6-4c50-97c8-3112fcdb055e)
 
-To replicate the figures and results found in Nygard et al. 2025, run the following scripts in the Scripts/ folder in this order:
+The recommended entry point for using GOTHiC is to start with either a pre-aligned pair of Hi-C .sam files or a .hic file produced by either FAN-C or Juicer. There are two available binning methods for graph creation: fixed-width binning and custom region binning. For fixed-width binning, simply specify the size each bin should be in base pairs using the binsize argument. If you wish to use custom regions as bins (e.g. TAD boundaries), instead provide a tab delimited regions file where each row is a bin/region and has three columns for chromosome (e.g. chr1, chr2, etc.), within-chromosome start position, and within-chromosome end position. 
+
+For a typical analysis of GO term clustering in a Hi-C dataset as presented in Nygard et al. 2025, run the following scripts in the Scripts/ folder in this order using your input files and parameters of choice:
 - fullRunTPD.py
 - fullRunSpectralMCL.py
 - tableReformat.py
