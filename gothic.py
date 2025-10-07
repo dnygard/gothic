@@ -688,7 +688,7 @@ def adjlist_file_to_graphml(adjlistfile, outfile="out.graphml"):
 
 
 # creates an edgelist from a .hic file to later be converted into a graph format (saves memory)
-def edgelist_from_hic(hicfile, outfile, binsize=100000, norm="None", contact_type="oe"):
+def edgelist_from_hic(hicfile, outfile, binsize=100000, norm="NONE", contact_type="oe"):
 
     hic = hicstraw.HiCFile(hicfile)
     chrom_list = []
@@ -696,8 +696,8 @@ def edgelist_from_hic(hicfile, outfile, binsize=100000, norm="None", contact_typ
     for chrom in hic.getChromosomes():
       chrom_list.append(chrom.name)
 
-    matrix_object = hic.getMatrixZoomData('chr1', 'chr2', "observed", "None", "BP", 250000)  # alt way of getting contacts
-    print(matrix_object)
+    # matrix_object = hic.getMatrixZoomData('chr1', 'chr2', "observed", "NONE", "BP", 250000)  # alt way of getting contacts
+    # print(matrix_object)
 
     with open(outfile, "w") as f:
         for first_chrom in tqdm(chrom_list, total=len(chrom_list)):
@@ -787,10 +787,11 @@ def genes_go_annotate(graphfile, mapfile="HUMAN_9606_idmapping_selected.tsv", ge
     goterms = {}  # key is node name (chr[#]:[bin]), value is list of goterms
     genes = {}  # key is node name (chr[#]:[bin]), value is list of genes
 
+    g = load_graph(graphfile)
+
     try:
         if binfile is None:
             # create new vname prop to match old style (chr#:chromnodenumber vs chr#:startpos-endpos)
-            g = load_graph(graphfile)
             newvname = g.new_vertex_property("string")
             for v in g.vertices():
                 vn = g.vp.vname[v]
@@ -1594,6 +1595,19 @@ def modify_weights(graphfile, wannotation="weight", outfile="modified.graphml"):
         print("Invalid weight annotation. You must choose either \"weight\" or \"raw_weight\".")
 
     g.save(outfile)
+
+
+# modify edgeweights that have been transformed according to method in [upcoming paper]
+def modify_weights_icemod(graphfile, wannotation="weight", outfile="modified.graphml"):
+
+    if type(graph) == str:
+        g = load_graph(graph)
+    elif type(graph) == Graph:
+        g = graph
+    else:
+        print(
+            "bad argument: Graph should be a file name (<class 'str'>) or graph-tool graph object (<class ‘graph_tool.Graph‘>)")
+    g.save(outfile, fmt="gt")
 
 
 # converts graphml to gt for faster opening in graph tool
@@ -4119,7 +4133,40 @@ def plot_edge_weight_distribution(graphfile, binsize=100, outfile="edgeWeightHis
 
     hist, bins, _ = plt.hist(g.ep.weight.a, bins=binsize)
     if log:
-        logbins = np.logspace(np.log10(bins[0]), np.log10(bins[-1]+1), len(bins))
+        print(bins)
+        logbins = np.logspace(0, np.log10(bins[-1]+1), num=binsize)
+    else:
+        logbins = binsize
+
+    plt.clf()
+    # Create histogram
+    plt.hist(g.ep.weight.a, bins=logbins, color='black')
+
+    # Add labels and title
+    plt.xlabel('Edge weight')
+    plt.ylabel('Count')
+    #plt.xlim(0.1, 1000)  # why does setting this result in such a strange plot?
+    if log:
+        plt.yscale('log')
+        plt.xscale('log')  # TODO remove this line
+
+    # Save the figure
+    plt.savefig(outfile)
+    plt.close()
+
+
+# function for plotting distribution of edge weights
+def plot_inverted_edge_weight_distribution(graphfile, binsize=100, outfile="edgeWeightHistogram.png", log=False):
+    print("loading " + graphfile + " for plotting...")
+    g = load_graph(graphfile)
+
+    # invert all weights 1/x
+    inv_weights = [1/x for x in g.ep.weight.a if x > 0]
+
+    hist, bins, _ = plt.hist(inv_weights, bins=binsize)
+    if log:
+        print(bins)
+        logbins = np.logspace(0, np.log10(bins[-1]+1), num=binsize)
     else:
         logbins = binsize
 
